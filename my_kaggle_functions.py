@@ -157,7 +157,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
 
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
-                           TargetTransformer: skl.preprocessing.StandardScaler()
+                           TargetTransformer=skl.preprocessing.StandardScaler()
                            ):
     """
     scales or transforms targets in df with scikit learn scalers / transformers
@@ -568,7 +568,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
                           y_train: pd.Series, y_val:pd.Series,
                           model, task: str="regression", 
                           verbose: bool=False, 
-                          TargetTransformer: None):
+                          TargetTransformer=None):
     """
     trains a model and returns trained model & score
     -----------
