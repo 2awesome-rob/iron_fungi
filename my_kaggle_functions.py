@@ -7,7 +7,7 @@ import matplotlib as mpl
 
 import sklearn as skl
 
-def set_globals(seed: int = 67, verbose: bool=True) -> tuple(str, int, mpl.colors.ListedColormap, list):
+def set_globals(seed: int = 67, verbose: bool=True) -> tuple:
     """
     -----------
     sets: global variables and configurations for the project
@@ -71,7 +71,7 @@ def summarize_data(df: pd.DataFrame, features: list)-> None:
     except: pass
     
 def load_tabular_data(path: str, extra_data: str=None,
-                      verbose: bool=True, csv_sep: str=",") -> tuple(pd.DataFrame, list, list, str):
+                      verbose: bool=True, csv_sep: str=",") -> tuple:
     """
     loads Kaggle type tabular data from path into single DataFrame
     -----------
@@ -127,7 +127,7 @@ def load_tabular_data(path: str, extra_data: str=None,
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10) -> tuple(pd.DataFrame, list):
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10) -> tuple:
     """
     Adds target "label" columns
     Useful for visualizing numeric targets as categorical
@@ -158,7 +158,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
                            TargetTransformer: function=skl.preprocessing.StandardScaler()
-                           ) -> tuple(pd.DataFrame, function, list):
+                           ) -> tuple:
     """
     scales or transforms targets in df with scikit learn scalers / transformers
     -----------
