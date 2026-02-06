@@ -7,7 +7,7 @@ import matplotlib as mpl
 
 import sklearn as skl
 
-def set_globals(seed: int = 67, verbose: bool=True) -> tuple:
+def set_globals(seed: int = 67, verbose: bool=True):
     """
     -----------
     sets: global variables and configurations for the project
@@ -71,7 +71,7 @@ def summarize_data(df: pd.DataFrame, features: list)-> None:
     except: pass
     
 def load_tabular_data(path: str, extra_data: str=None,
-                      verbose: bool=True, csv_sep: str=",") -> tuple:
+                      verbose: bool=True, csv_sep: str=","):
     """
     loads Kaggle type tabular data from path into single DataFrame
     -----------
@@ -127,7 +127,7 @@ def load_tabular_data(path: str, extra_data: str=None,
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10) -> tuple:
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10):
     """
     Adds target "label" columns
     Useful for visualizing numeric targets as categorical
@@ -158,7 +158,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
                            TargetTransformer: function=skl.preprocessing.StandardScaler()
-                           ) -> tuple:
+                           ):
     """
     scales or transforms targets in df with scikit learn scalers / transformers
     -----------
@@ -209,7 +209,7 @@ def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -
     return df
 
 def split_training_data(df: pd.DataFrame, features: list, targets: list, validation_size: None
-                        )-> tuple:
+                        ):
     """
     splits df into training, validation, and test sets
     -----------
