@@ -4,6 +4,7 @@ import pandas as pd
 
 import lightgbm as lgb
 import sklearn as skl
+import torch
 
 import random
 import itertools
@@ -27,8 +28,6 @@ def set_globals(seed: int = 67, verbose: bool=True):
     returns:
     - DEVICE: torch device (cpu or cuda)
     - CORES: number of CPU cores to use for multiprocessing
-    - MY_CMAP: custom colormap for visualizations
-    - MY_PALETTE: custom color palette for visualizations
     -----------
     requires: numpy, pandas, seaborn, matplotlib, random, multiprocessing.cpu_count
     optional: torch
@@ -45,8 +44,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     pd.set_option('display.precision', 4)
 
     # custom seaborn/matplotlib style
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
-    MY_CMAP = mpl.colors.ListedColormap(MY_PALETTE)
+    MY_PALETTE = get_colors()
     sns.set_theme(context = 'paper', style = 'ticks', palette = MY_PALETTE, rc={"figure.figsize": (9, 3), "axes.spines.right": False, "axes.spines.top": False})
 
     # device settings for torch
@@ -60,9 +58,52 @@ def set_globals(seed: int = 67, verbose: bool=True):
     if verbose:
         print(f"Using device: {DEVICE}")
         print(f"Using {CORES} CPU cores when multiprocessing")
-        sns.palplot(MY_PALETTE) 
     
-    return DEVICE, CORES, MY_CMAP, MY_PALETTE
+    return DEVICE, CORES 
+
+def get_colors(n_colors: int=None, get_cmap: bool=False, 
+                cmap_name: str='cividis', n_hues: int=None, n_sats: int=None):
+    """
+    generates a palette or color map for visualizations
+    -----------
+    returns:
+    if n_colors is provided:
+    - generates and returns a matplotlib colormap object or list of colors with n_colors
+    else:
+    - default colormap object or list of colors for visualizations
+    -----------
+    requires: seaborn, matplotlib
+    """
+    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    if n_colors is None:
+        if get_cmap: return mpl.colormaps[cmap_name]
+        else: return MY_PALETTE
+
+    if get_cmap:
+        if n_colors <= len(MY_PALETTE):
+            return dict(zip(range(n_colors), MY_PALETTE[:n_colors]))
+        elif n_colors <= n_hues * n_sats:
+            new_palette = []
+            for j in range(n_hues):
+                for i in range(n_sats):
+                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
+            return dict(zip(range(n_colors), new_palette[:n_colors]))
+        else:
+            cmap = mpl.colormaps[cmap_name].resampled(n_colors)
+            return dict(zip(range(n_colors), [cmap(i / n_colors) for i in range(n_colors)]))
+    else:
+        if n_colors <= len(MY_PALETTE):
+            return MY_PALETTE[:n_colors]
+        elif n_colors <= n_hues * n_sats:
+            new_palette = []
+            for j in range(n_hues):
+                for i in range(n_sats):
+                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
+            return new_palette[:n_colors]
+        else:
+            cmap = mpl.colormaps[cmap_name].resampled(n_colors)
+            return [cmap(i / n_colors) for i in range(n_colors)]       
+
 
 def summarize_data(df: pd.DataFrame, features: list)-> None:
     """prints df summary and descriptive stats for selected features"""
@@ -296,7 +337,7 @@ def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target
     assumes: encoder is a scikit learn PCA or kernel approximation object
     requires: pandas, scikit learn, matplotlib, seaborn, numpy
     """
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    MY_PALETTE = get_colors()
     X_features = Encoder.fit_transform(np.float32(df[features]))
     cols = [(col_names + str(i)) for i in range(index, index + X_features.shape[1])]
     X_features = pd.DataFrame(X_features, columns=cols)
@@ -357,7 +398,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     -----------
     requires: seaborn, matplotlib, pandas, numpy
     """
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    MY_PALETTE = get_colors()
     SEED = 67
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
@@ -457,21 +498,6 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color = 'xkcd:steel grey')
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
-    ### build common cmap for categoricals
-    def _set_color_map(order, clrs = 6, sats = 5):
-        if len(order) <= len(MY_PALETTE):
-            return dict(zip(order, MY_PALETTE[:len(order)]))
-        elif len(order) <= clrs * sats:
-            new_palette = []
-            for j in range(clrs):
-                for i in range(sats):
-                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
-            return dict(zip(order, new_palette[:len(order)]))
-        else:
-            cmap = mpl.colormaps['cividis'].resampled(len(order))
-            new_palette = [cmap(i / len(order)) for i in range(len(order))]
-            return dict(zip(order, new_palette))
-
     ### limit number of features plotted/size of plot
     f = len(features)
     if len(features) > 20:
@@ -496,7 +522,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         row_anchors.append(ax0)
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
-            color_map = _set_color_map(order)
+            color_map = get_colors(len(order), get_cmap=True, hues=6, sats=5)
             _plot_cat_distribution(ax0, feature, order, color_map)
             _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
             if label != None:
@@ -724,20 +750,20 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, models: list,
                      verbose: bool=True, TargetTransformer=None)-> np.ndarray:
     
     SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
-    y_test = np.zeros_like(
+    y_test = np.zeros(X.shape[0])
     
     for m in models:
         if task == "classification_probability":
-             y_test = m.predict_proba(X)[:, 1]
+             y_test += m.predict_proba(X)[:, 1]
         else:
-             y_test = model.predict(X) 
+             y_test += m.predict(X) 
+    y_test /= len(models)
 
     if TargetTransformer == None:
         y_pred = np.array(y_test).reshape(-1, 1) 
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
 
-    
     SUBMISSION[target] = y_pred
     SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
 
