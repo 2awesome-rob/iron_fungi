@@ -522,7 +522,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         row_anchors.append(ax0)
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
-            color_map = get_colors(len(order), get_cmap=True, hues=6, sats=5)
+            color_map = get_colors(len(order), get_cmap=True, n_hues=6, n_sats=5)
             _plot_cat_distribution(ax0, feature, order, color_map)
             _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
             if label != None:
