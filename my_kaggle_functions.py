@@ -61,7 +61,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     
     return DEVICE, CORES 
 
-def get_colors(n_colors: int=None, get_cmap: bool=False, 
+def get_colors(color_keys: list=None, get_cmap: bool=False, 
                 cmap_name: str='cividis', n_hues: int=None, n_sats: int=None):
     """
     generates a palette or color map for visualizations
@@ -75,22 +75,23 @@ def get_colors(n_colors: int=None, get_cmap: bool=False,
     requires: seaborn, matplotlib
     """
     MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
-    if n_colors is None:
+    if color_keys is None:
         if get_cmap: return mpl.colormaps[cmap_name]
         else: return MY_PALETTE
-
+    
+    n_colors = len(color_keys)
     if get_cmap:
         if n_colors <= len(MY_PALETTE):
-            return dict(zip(range(n_colors), MY_PALETTE[:n_colors]))
+            return dict(zip(color_keys, MY_PALETTE[:n_colors]))
         elif n_colors <= n_hues * n_sats:
             new_palette = []
             for j in range(n_hues):
                 for i in range(n_sats):
                     new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
-            return dict(zip(range(n_colors), new_palette[:n_colors]))
+            return dict(zip(color_keys, new_palette[:n_colors]))
         else:
             cmap = mpl.colormaps[cmap_name].resampled(n_colors)
-            return dict(zip(range(n_colors), [cmap(i / n_colors) for i in range(n_colors)]))
+            return dict(zip(color_keys, [cmap(i / n_colors) for i in range(n_colors)]))
     else:
         if n_colors <= len(MY_PALETTE):
             return MY_PALETTE[:n_colors]
@@ -411,7 +412,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     ### Countplot for distribution of categorical feature (cat plot 0)
     def _plot_cat_distribution(ax, feature, order, color_map):
         sns.countplot(data=df, x=feature, order=order, ax=ax,
-                      palette=[color_map[val] for val in range(len(order))])
+                      palette=[color_map[val] for val in order])
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
@@ -443,7 +444,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
             sampled_dfs.append(group.sample(n=max(1, int(frac * len(group))), random_state=SEED))
         df_sampled = pd.concat(sampled_dfs)
         sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
-                          palette=[color_map[val] for val in range(len(order))], alpha=0.5, jitter=True)
+                          palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
                       color=MY_PALETTE[-1], errorbar = None)
 
@@ -522,7 +523,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         row_anchors.append(ax0)
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
-            color_map = get_colors(len(order), get_cmap=True, n_hues=6, n_sats=5)
+            color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
             _plot_cat_distribution(ax0, feature, order, color_map)
             _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
             if label != None:
