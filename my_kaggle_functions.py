@@ -233,6 +233,7 @@ def split_training_data(df: pd.DataFrame, features: list, targets: list, validat
     -----------
     requires: pandas, scikit learn
     """
+    SEED = 80085
     X_test = df[df.target_mask.eq(False)][features]
     y_test = df[df.target_mask.eq(False)][targets]
 
@@ -610,7 +611,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
         print(f"***  model score:  {score:.4f}  ***")
     return model, score
 
-def get_feature_importance(X_train, X_val, y_train, y_val, target, verbose = False, task = "regression"):
+def get_feature_importance(X_train, X_val, y_train, y_val, target, verbose = True, task = "regression"):
     """
     gets feature importance by training an LightGBM model
     -----------
