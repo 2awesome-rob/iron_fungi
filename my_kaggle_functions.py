@@ -411,7 +411,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     ### Countplot for distribution of categorical feature (cat plot 0)
     def _plot_cat_distribution(ax, feature, order, color_map):
         sns.countplot(data=df, x=feature, order=order, ax=ax,
-                      palette=[color_map[val] for val in order])
+                      palette=[color_map[val] for val in range(len(order))])
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
@@ -443,7 +443,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
             sampled_dfs.append(group.sample(n=max(1, int(frac * len(group))), random_state=SEED))
         df_sampled = pd.concat(sampled_dfs)
         sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
-                          palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
+                          palette=[color_map[val] for val in range(len(order))], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
                       color=MY_PALETTE[-1], errorbar = None)
 
