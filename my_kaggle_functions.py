@@ -6,14 +6,16 @@ import lightgbm as lgb
 import sklearn as skl
 
 import random
-from multiprocessing import Pool, cpu_count
+import itertools
 
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
+from multiprocessing import Pool, cpu_count
 
 
+###Initiaalization and data loading functions
 def set_globals(seed: int = 67, verbose: bool=True):
     """
     -----------
@@ -163,6 +165,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
         targets.extend(["qcut_label", "cut_label"])
     return df, targets
 
+###Data cleaning and feature engineering functions
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
                            TargetTransformer=skl.preprocessing.StandardScaler()
@@ -216,11 +219,13 @@ def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
-def split_training_data(df: pd.DataFrame, features: list, targets: list, validation_size: None
+def split_training_data(df: pd.DataFrame, features: list, targets, validation_size: None
                         ):
     """
     splits df into training, validation, and test sets
     -----------
+    if targets is a list, y will be a DataFrame, if targets is a string, y will be a Series
+    *** if y is a DataFrame it may need to be converted to Series for some models e.g. y = y[target] ***
     if validation_size is None,
         returns train and test splits of the data
         use to only separate test from training data without creating a validation set
@@ -249,27 +254,67 @@ def split_training_data(df: pd.DataFrame, features: list, targets: list, validat
         return X_train, y_train, X_val,  y_val, X_test, y_test
     else: return X, y, X_test, y_test, X_test, y_test
 
-def calculate_score(actual, predicted, metric='rmse')-> float:
-    """ 
-    calculates score based on metric or task
-    simplifies calling scikit learn metrics by allowing flexible metric names
-    -----------
-    for rmse use 'rmse' or 'regression'
-    for accuracy use 'accuracy' or 'classification'
-    for roc_auc use 'roc_auc' or 'classification_probability'
-    -----------
-    requires: scikit learn
+def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransformer):
     """
-    if metric == 'rmse' or metric == 'regression':
-        return skl.metrics.root_mean_squared_error(actual, predicted)
-    elif metric == 'accuracy' or metric == 'classification':
-        return skl.metrics.accuracy_score(actual, predicted)
-    elif metric == 'roc_auc' or metric == 'classification_probability':
-        return skl.metrics.roc_auc_score(actual, predicted)
-    else:
-        raise ValueError("""***UNSUPPORTED METRIC***\n
-                         Supported metrics: 'rmse', 'accuracy' or 'roc_auc'""")
+    scales or transforms features in df with scikit learn scalers / transformers
+    -----------
+    returns: df with transformed features
+    -----------
+    requires: pandas, scikit learn
+    """
+    for feature in features:
+        X = df[feature].values.reshape(-1,1)
+        df[feature] = FeatureTransformer.fit_transform(X)
+    return df    
 
+def get_feature_interactions(df: pd.DataFrame, features:list):
+    """
+    adds interaction features to df 
+    ----------
+    - multiplys pairs of features together 
+    - applies a power transformation to the new features
+    ----------
+    returns: df with new interaction features added
+    ----------- 
+    requires: pandas, scikit learn, itertools
+    """
+    ##Add kitchen sink feature inteactions 
+    for combination in itertools.combinations(features, 2):
+        df["*".join(combination)] = df[list(combination)].prod(axis=1)
+    new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
+    df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer())
+    print(f"Added {len(new_features)} inteaction features")
+    return df
+
+def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
+    """
+    generates PCA loadings or kernal approximations for selected feature space
+    returns df with new features added for the loadings or approximations
+    encoder should be a scikit learn PCA or kernel approximation object
+    -----------
+    requires: pandas, scikit learn, matplotlib, seaborn, numpy
+    """
+    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    X_features = Encoder.fit_transform(np.float32(df[features]))
+    cols = [(col_names + str(i)) for i in range(index, index + X_features.shape[1])]
+    X_features = pd.DataFrame(X_features, columns=cols)
+    print(f'Added {len(cols)} {col_names} encoding features')
+    if verbose and target != None:
+        fig, axs = plt.subplots(1,2, figsize=(7, 3))
+        X_features[target] = df[target]
+        palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
+        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=axs[0], legend=False, palette=palette
+                       ).set_title(f"{cols[1]} vs {cols[0]}")
+        X_features.drop(target, inplace = True, axis = 1)
+        if hasattr(Encoder, 'explained_variance_ratio_'):
+            ds = pd.Series(Encoder.explained_variance_ratio_, name ="var", index = cols)
+            ds[:10].plot(kind = 'barh', ax = axs[1], 
+                         title = f"Explained variance by {col_names} Encoding")
+        else: axs[1].remove()
+        plt.show()
+    return df.join(X_features)
+
+###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
     """
     plots simple target distribution plot
@@ -491,6 +536,27 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
     plt.show()
 
 ### Train and evaluate
+def calculate_score(actual, predicted, metric='rmse')-> float:
+    """ 
+    calculates score based on metric or task
+    simplifies calling scikit learn metrics by allowing flexible metric names
+    -----------
+    for rmse use 'rmse' or 'regression'
+    for accuracy use 'accuracy' or 'classification'
+    for roc_auc use 'roc_auc' or 'classification_probability'
+    -----------
+    requires: scikit learn
+    """
+    if metric == 'rmse' or metric == 'regression':
+        return skl.metrics.root_mean_squared_error(actual, predicted)
+    elif metric == 'accuracy' or metric == 'classification':
+        return skl.metrics.accuracy_score(actual, predicted)
+    elif metric == 'roc_auc' or metric == 'classification_probability':
+        return skl.metrics.roc_auc_score(actual, predicted)
+    else:
+        raise ValueError("""***UNSUPPORTED METRIC***\n
+                         Supported metrics: 'rmse', 'accuracy' or 'roc_auc'""")
+
 def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', TargetTransformer=None)-> None:
     """
     plots training results with reference model for comparison
@@ -616,7 +682,7 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose = True, task 
     gets feature importance by training an LightGBM model
     -----------
     trains a LightGBM model on the training data and evaluates on the validation data
-    returns a pandas Series of feature importances sorted in descending order
+    returns: a Series of feature importances sorted in descending order
     -----------
     requires: pandas, lightgbm, scikit learn
     """
@@ -634,15 +700,41 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose = True, task 
     print(f"  ***  Top feature is: {ds.index[0]}  *** \n")
     ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
     if verbose:
+        if len(ds) > 50: features_to_show = 10
+        elif len(ds) > 20: features_to_show = 5
+        else: features_to_show = 3
         print("=" * 69)
         print(f"  Top Features:")
-        print(ds.head(12))
+        print(ds.head(features_to_show))
         print("=" * 69)
         print(f"  Bottom Features:")
         print("=" * 69)
-        print(ds.tail(12))
+        print(ds.tail(features_to_show))
         print("=" * 69)
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
+def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, model, 
+                     task: str='regression', path: str="", 
+                     verbose: bool=True, TargetTransformer=None)-> np.ndarray:
+    
+    if task == "classification_probability":
+        y_test = model.predict_proba(X)[:, 1]
+    else:
+        y_test = model.predict(X) 
 
+    if TargetTransformer == None:
+        y_pred = np.array(y_test).reshape(-1, 1) 
+    else:
+        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+
+    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
+    SUBMISSION[target] = y_pred
+    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
+
+    if verbose:
+        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
+
+    print("=" * 6, 'save success', "=" * 6, "\n")
+    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
+    return y_pred
