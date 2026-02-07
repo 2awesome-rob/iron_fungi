@@ -288,7 +288,6 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
 
 def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=None, 
                       sample: int=1000, y_min: float=None, y_max: float=None,
-                      my_palette: list=[],
                       high_label = "Good", low_label = "Bad") -> None:
     """ 
     supports feature EDA with numeric targets
@@ -308,8 +307,8 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     -----------
     requires: seaborn, matplotlib, pandas, numpy
     """
-    if len(my_palette) == 0:
-        my_palette = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    SEED = 67
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
         sns.histplot(df[feature], ax=ax, bins = 50)
@@ -355,13 +354,13 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
                           palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
-                      color=my_palette[-1], errorbar = None)
+                      color=MY_PALETTE[-1], errorbar = None)
 
         if len(df[target].unique()) > 5:
             for i, val in enumerate(order):
                 subset = df[df[feature] == val][target].dropna()
                 q25, q75 = subset.quantile([0.25, 0.75])
-                ax.vlines(x=i, ymin=q25, ymax=q75, color=my_palette[-1], linewidth=2,  zorder = 3)
+                ax.vlines(x=i, ymin=q25, ymax=q75, color=MY_PALETTE[-1], linewidth=2,  zorder = 3)
         
         ax.set_title(f'{target} vs {feature}')
         if len(order) > 8: 
@@ -381,7 +380,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
             sns.boxplot(x = df[feature], ax=ax)
             ax.set_title(f'{feature} outliers')
         else:
-            sns.boxplot(x = df[feature], palette=my_palette , ax=ax, legend = False, gap = .1,
+            sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = sorted(df[label].dropna().unique().tolist()))
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
@@ -410,13 +409,13 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
 
     ### build common cmap for categoricals
     def _set_color_map(order, clrs = 6, sats = 5):
-        if len(order) <= len(my_palette):
-            return dict(zip(order, my_palette[:len(order)]))
+        if len(order) <= len(MY_PALETTE):
+            return dict(zip(order, MY_PALETTE[:len(order)]))
         elif len(order) <= clrs * sats:
             new_palette = []
             for j in range(clrs):
                 for i in range(sats):
-                    new_palette.append(sns.desaturate(my_palette[j], 1-.2*i))
+                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
             return dict(zip(order, new_palette[:len(order)]))
         else:
             cmap = mpl.colormaps['cividis'].resampled(len(order))
