@@ -14,8 +14,6 @@ import matplotlib.pyplot as plt
 
 
 MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
-MY_CMAP = mpl.colors.ListedColormap(MY_PALETTE)
-
 
 def set_globals(seed: int = 67, verbose: bool=True):
     """
@@ -46,7 +44,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     pd.set_option('display.precision', 4)
 
     # custom seaborn/matplotlib style
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    MY_PALETTE = MY_PALETTE
     MY_CMAP = mpl.colors.ListedColormap(MY_PALETTE)
     sns.set_theme(context = 'paper', style = 'ticks', palette = MY_PALETTE, rc={"figure.figsize": (9, 3), "axes.spines.right": False, "axes.spines.top": False})
 
@@ -157,7 +155,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
         df["label"] = df[target]
         targets.append("label")
     elif df[target].nunique() < 8:
-        df["label"] = XY[target].max() - XY[target]
+        df["label"] = df[target].max() - df[target]
         targets.append("label")
     else:
         df["qcut_label"] = cuts  - pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
