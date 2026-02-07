@@ -288,7 +288,7 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
 
 def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=None, 
                       sample: int=1000, y_min: float=None, y_max: float=None,
-                      my_palette: list=MY_PALETTE,
+                      my_palette: list=[],
                       high_label = "Good", low_label = "Bad") -> None:
     """ 
     supports feature EDA with numeric targets
@@ -308,6 +308,8 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     -----------
     requires: seaborn, matplotlib, pandas, numpy
     """
+    if len(my_palette) == 0:
+        my_palette = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
         sns.histplot(df[feature], ax=ax, bins = 50)
