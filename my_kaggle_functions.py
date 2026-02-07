@@ -2,10 +2,20 @@
 import numpy as np
 import pandas as pd 
 
+import lightgbm as lgb
+import sklearn as skl
+
+import random
+from multiprocessing import Pool, cpu_count
+
 import seaborn as sns
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 
-import sklearn as skl
+
+MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+MY_CMAP = mpl.colors.ListedColormap(MY_PALETTE)
+
 
 def set_globals(seed: int = 67, verbose: bool=True):
     """
@@ -87,6 +97,7 @@ def load_tabular_data(path: str, extra_data: str=None,
     - list of targets, including column "target_mask"
         - adds "target_mask" for separating test from training data
     - target column name (first target)
+    requires: pandas
     """
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
     df_test = pd.read_csv(f"{path}/test.csv", sep=csv_sep)
