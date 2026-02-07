@@ -625,9 +625,8 @@ def get_feature_importance(X_train, X_val, y_train, y_val, target, verbose = Tru
     if task not in ["regression", "classification", "classification_probability"]:
         print(f"!!!  Task not recognized   !!!")
         return None
-    ModelFeatureImportance, _ = train_and_score_model(X_train, X_val, y_train, y_val,
+    ModelFeatureImportance, _ = train_and_score_model(X_train, X_val, y_train[target], y_val[target],
                                                       model=model,
-                                                      target=target,
                                                       verbose=False, task=task)
     ds = pd.Series(ModelFeatureImportance.feature_importances_, name="importance", index=X_train.columns)
     ds.sort_values(ascending=False, inplace = True)
