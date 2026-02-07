@@ -12,7 +12,7 @@ import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
 
 
 ###Initiaalization and data loading functions
@@ -23,6 +23,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     - seed settings for reproducibility
     - pandas display options
     - seaborn/matplotlib visualization styles
+    -----------
     returns:
     - DEVICE: torch device (cpu or cuda)
     - CORES: number of CPU cores to use for multiprocessing
@@ -31,7 +32,6 @@ def set_globals(seed: int = 67, verbose: bool=True):
     -----------
     requires: numpy, pandas, seaborn, matplotlib, random, multiprocessing.cpu_count
     optional: torch
-    -----------
     """
     # random seed settings for reproducibility
     random.seed(seed)
@@ -84,11 +84,6 @@ def load_tabular_data(path: str, extra_data: str=None,
     """
     loads Kaggle type tabular data from path into single DataFrame
     -----------
-    assumes:
-    - path contains train.csv, test.csv, sample_submission.csv files
-    - extra_data is optional "path + file name" of additional training data
-        - extra_data must contain same features and targets as train.csv
-    -----------
     returns:
     - merged DataFrame for EDA & feature engineering
     - list of training features
@@ -96,6 +91,11 @@ def load_tabular_data(path: str, extra_data: str=None,
     - list of targets, including column "target_mask"
         - adds "target_mask" for separating test from training data
     - target column name (first target)
+    -----------
+    assumes:
+    - path contains train.csv, test.csv, sample_submission.csv files
+    - extra_data is optional "path + file name" of additional training data
+        - extra_data contains same features and targets as train.csv
     requires: pandas
     """
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
@@ -140,11 +140,11 @@ def load_tabular_data(path: str, extra_data: str=None,
 def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10):
     """
     Adds target "label" columns
-    Useful for visualizing numeric targets as categorical
+    Useful for visualizing numeric targets in categorical "bins"
     -----------
     if target is categorical (object or category dtype)
         - adds "label" same as target for visualization
-    if target is numeric with few unique values (<8)
+    if target is bool or numeric with few unique values (<8)
         - adds "label" reversing the order of the target values (for better visualization)
     if target is numeric with many unique values (>=8)
         - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
@@ -154,7 +154,8 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 1
     """
     if df[target].dtype == 'O' or df[target].dtype.name == 'category':
         df["label"] = df[target]
-        targets.append("label")
+        print("Target is not Numeric\nLabelis target")
+        #targets.append("label")
     elif df[target].nunique() < 8:
         df["label"] = df[target].max() - df[target]
         targets.append("label")
@@ -194,12 +195,12 @@ def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -
     """
     edits strings in categorical feature columns to be more consistent and easier to work with
     -----------
-        - converts to lowercase
+    returns: 
+    updated df with cleaned categorical feature columns
+        - converted to lowercase
         - replaces spaces and special characters
         - trims to specified max length
         - converts to category dtype
-    -----------
-    returns: updated df with cleaned categorical feature columns
     -----------
     requires: pandas
     """
@@ -271,10 +272,9 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
     """
     adds interaction features to df 
     ----------
-    - multiplys pairs of features together 
-    - applies a power transformation to the new features
-    ----------
     returns: df with new interaction features added
+        - multiplys pairs of features together 
+        - applies a power transformation to the new features
     ----------- 
     requires: pandas, scikit learn, itertools
     """
@@ -289,9 +289,11 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
 def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     generates PCA loadings or kernal approximations for selected feature space
-    returns df with new features added for the loadings or approximations
-    encoder should be a scikit learn PCA or kernel approximation object
     -----------
+    returns: 
+    df with new features added for the loadings or approximations
+    -----------
+    assumes: encoder is a scikit learn PCA or kernel approximation object
     requires: pandas, scikit learn, matplotlib, seaborn, numpy
     """
     MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
@@ -320,6 +322,7 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     plots simple target distribution plot
     if target is continuous (float or int with many unique values), plots histogram with KDE
     if target is categorical (object, category, bool, or int with few unique values), plots countplot
+    -----------
     requires: seaborn, matplotlib, pandas
     """
     if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
@@ -338,7 +341,6 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     """ 
     supports feature EDA with numeric targets
     -----------
-    for performance, limits the number of features plotted to 20
     for each numeric feature, plots:
         - distribution histogram
         - scatterplot with trendline showing relationship to target
@@ -350,6 +352,8 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     sample limits the number of points plotted in relationship plots
     high_label and low_label are used for boxplot and donut labels when label is provided
     y_min and y_max can be set to limit the y-axis of relationship plots
+    --
+    for performance, limits the number of features plotted to 20
     -----------
     requires: seaborn, matplotlib, pandas, numpy
     """
@@ -520,11 +524,11 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
     """
     pairplot for feature to feature comparisons
     -----------
-    for performance, limits scatterplots to a sample of the data
     plots:
         - pairwise scatterplots for numeric features
         - kde histograms on the diagonal
         - contour lines on the lower triangle to show density of points in scatterplots
+    for performance, limits scatterplots to a sample of the data
     -----------
     requires: seaborn, matplotlib, pandas
     """
@@ -541,6 +545,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     calculates score based on metric or task
     simplifies calling scikit learn metrics by allowing flexible metric names
     -----------
+    returns: metric score
     for rmse use 'rmse' or 'regression'
     for accuracy use 'accuracy' or 'classification'
     for roc_auc use 'roc_auc' or 'classification_probability'
@@ -677,12 +682,12 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
         print(f"***  model score:  {score:.4f}  ***")
     return model, score
 
-def get_feature_importance(X_train, X_val, y_train, y_val, verbose = True, task = "regression"):
+def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task = "regression"):
     """
     gets feature importance by training an LightGBM model
     -----------
-    trains a LightGBM model on the training data and evaluates on the validation data
     returns: a Series of feature importances sorted in descending order
+    trains a LightGBM model on the training data and evaluates on the validation data
     -----------
     requires: pandas, lightgbm, scikit learn
     """
@@ -714,21 +719,25 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose = True, task 
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
-def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, model, 
+def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, models: list, 
                      task: str='regression', path: str="", 
                      verbose: bool=True, TargetTransformer=None)-> np.ndarray:
     
-    if task == "classification_probability":
-        y_test = model.predict_proba(X)[:, 1]
-    else:
-        y_test = model.predict(X) 
+    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
+    y_test = np.zeros_like(
+    
+    for m in models:
+        if task == "classification_probability":
+             y_test = m.predict_proba(X)[:, 1]
+        else:
+             y_test = model.predict(X) 
 
     if TargetTransformer == None:
         y_pred = np.array(y_test).reshape(-1, 1) 
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
 
-    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
+    
     SUBMISSION[target] = y_pred
     SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
 
