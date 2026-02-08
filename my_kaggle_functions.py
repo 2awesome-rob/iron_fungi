@@ -9,6 +9,8 @@ import torch
 import random
 import itertools
 
+import tqdm
+
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -105,7 +107,6 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
             cmap = mpl.colormaps[cmap_name].resampled(n_colors)
             return [cmap(i / n_colors) for i in range(n_colors)]       
 
-
 def summarize_data(df: pd.DataFrame, features: list)-> None:
     """prints df summary and descriptive stats for selected features"""
     print("=" * 69)
@@ -121,8 +122,7 @@ def summarize_data(df: pd.DataFrame, features: list)-> None:
         print(df[non_numeric_cols].describe().T)
     except: pass
     
-def load_tabular_data(path: str, extra_data: str=None,
-                      verbose: bool=True, csv_sep: str=","):
+def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_sep: str=","):
     """
     loads Kaggle type tabular data from path into single DataFrame
     -----------
@@ -179,7 +179,7 @@ def load_tabular_data(path: str, extra_data: str=None,
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts:int = 10):
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10):
     """
     Adds target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
@@ -262,8 +262,7 @@ def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
-def split_training_data(df: pd.DataFrame, features: list, targets, validation_size: None
-                        ):
+def split_training_data(df: pd.DataFrame, features: list, targets, validation_size: None| float | pd.Index = None):
     """
     splits df into training, validation, and test sets
     -----------
@@ -303,9 +302,9 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
     -----------
     returns: df with transformed features
     -----------
-    requires: pandas, scikit learn
+    requires: pandas, scikit learn, tqdm
     """
-    for feature in features:
+    for feature in tqdm(features, desc="Transforming features", unit="feature"):
         X = df[feature].values.reshape(-1,1)
         df[feature] = FeatureTransformer.fit_transform(X)
     return df    
@@ -318,10 +317,10 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
         - multiplys pairs of features together 
         - applies a power transformation to the new features
     ----------- 
-    requires: pandas, scikit learn, itertools
+    requires: pandas, scikit learn, itertools, tqdm
     """
     ##Add kitchen sink feature inteactions 
-    for combination in itertools.combinations(features, 2):
+    for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pair"):
         df["*".join(combination)] = df[list(combination)].prod(axis=1)
     new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
     df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer())
@@ -676,7 +675,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
                           y_train: pd.Series, y_val:pd.Series,
                           model, task: str="regression", 
-                          verbose: bool=False, 
+                          verbose: bool=True, 
                           TargetTransformer=None):
     """
     trains a model and returns trained model & score
