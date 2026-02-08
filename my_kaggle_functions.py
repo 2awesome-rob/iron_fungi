@@ -9,7 +9,7 @@ import torch
 import random
 import itertools
 
-import tqdm
+from tqdm import tqdm
 
 import seaborn as sns
 import matplotlib as mpl
