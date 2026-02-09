@@ -401,7 +401,7 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
     - if target is provided, replaces cluster labels with mean target value creating a target-informed cluster feature
     -----------
     assumes: encoder is a scikit learn clustering object with fit_predict method
-    requires: pandas, scikit learn, numpy
+    requires: pandas, scikit learn, numpy, matplotlib, seaborn
     """
     X = df[features].values
     df[col_name] = encoder.fit_predict(X)
@@ -409,6 +409,14 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
         df[col_name].replace(d, inplace=True)
+    else:
+        df[col_name] = df[col_name].astype('category')
+    if verbose:
+        print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values")
+        if target:
+            print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
+            sns.scatterplot(data=df[:1000], x=XY[features[0]], y=XY[features[1]], hue=target, legend=False)
+            plot_features_eda(df, [col_name], target, label=None)
     return df
 
 ###EDA functions
