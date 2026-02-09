@@ -10,6 +10,7 @@ import random
 import itertools
 
 from tqdm import tqdm
+from time import time
 
 import seaborn as sns
 import matplotlib as mpl
@@ -365,7 +366,7 @@ def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, ta
     df with new features added for the encoding
     -----------
     assumes: encoder is a umap.UMAP object
-    requires: pandas, matplotlib, seaborn, numpy, umap
+    requires: pandas, matplotlib, seaborn, numpy, umap, time
     """
     tic=time()
     sample_size = max(int(df.shape[0] * 0.1), 10000)
@@ -395,6 +396,12 @@ def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, ta
 def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
+    -----------
+    returns: updated df with new column for cluster labels
+    - if target is provided, replaces cluster labels with mean target value creating a target-informed cluster feature
+    -----------
+    assumes: encoder is a scikit learn clustering object with fit_predict method
+    requires: pandas, scikit learn, numpy
     """
     X = df[features].values
     df[col_name] = encoder.fit_predict(X)
