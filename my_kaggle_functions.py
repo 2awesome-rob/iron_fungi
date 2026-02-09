@@ -415,7 +415,7 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
         print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values")
         if target:
             print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
-            sns.scatterplot(data=df[:1000], x=XY[features[0]], y=XY[features[1]], hue=target, legend=False)
+            sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], hue=col_name, legend=False)
             plot_features_eda(df, [col_name], target, label=None)
     return df
 
