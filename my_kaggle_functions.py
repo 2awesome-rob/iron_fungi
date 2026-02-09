@@ -304,7 +304,7 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
     -----------
     requires: pandas, scikit learn, tqdm
     """
-    for feature in tqdm(features, desc="Transforming features", unit="feature"):
+    for feature in tqdm(features, desc="Transforming features", unit="features"):
         X = df[feature].values.reshape(-1,1)
         df[feature] = FeatureTransformer.fit_transform(X)
     return df    
@@ -320,7 +320,7 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
     requires: pandas, scikit learn, itertools, tqdm
     """
     ##Add kitchen sink feature inteactions 
-    for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pair"):
+    for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pairs"):
         df["*".join(combination)] = df[list(combination)].prod(axis=1)
     new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
     df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer())
@@ -337,12 +337,12 @@ def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target
     assumes: encoder is a scikit learn PCA or kernel approximation object
     requires: pandas, scikit learn, matplotlib, seaborn, numpy
     """
-    MY_PALETTE = get_colors()
     X_features = Encoder.fit_transform(np.float32(df[features]))
     cols = [(col_names + str(i)) for i in range(index, index + X_features.shape[1])]
     X_features = pd.DataFrame(X_features, columns=cols)
     print(f'Added {len(cols)} {col_names} encoding features')
     if verbose and target != None:
+        MY_PALETTE = get_colors()
         fig, axs = plt.subplots(1,2, figsize=(7, 3))
         X_features[target] = df[target]
         palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
@@ -356,6 +356,53 @@ def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target
         else: axs[1].remove()
         plt.show()
     return df.join(X_features)
+
+def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
+    """
+    generates UMAP encoding of selected feature space
+    -----------
+    returns: 
+    df with new features added for the encoding
+    -----------
+    assumes: encoder is a umap.UMAP object
+    requires: pandas, matplotlib, seaborn, numpy, umap
+    """
+    tic=time()
+    sample_size = max(int(df.shape[0] * 0.1), 10000)
+    if sample_size > df.shape[0]: df_sample = df
+    else: df_sample = df.sample(n=sample_size, random_state=69)
+    print("Training UMAP encoder...")
+    mapper = mapper.fit(df_sample[features])
+    print("UMAP encoding features...")
+    reduced_data = mapper.transform(df[features])
+    
+    cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
+    X_features = pd.DataFrame(reduced_data, columns=cols)
+    print(f"Added {len(cols)} UMAP features in {time()-tic:.2f}sec")
+
+    if verbose and target != None:
+        MY_PALETTE = get_colors()
+        fig, ax = plt.subplots(figsize=(4, 3))
+        X_features[target] = df[target]
+        palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
+        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=ax, legend=False, palette=palette
+                       ).set_title(f"{cols[1]} vs {cols[0]}")
+        X_features.drop(target, inplace = True, axis = 1)
+        plt.show()
+
+    return df.join(X_features)
+
+def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose=True) -> pd.DataFrame:
+    """
+    generates clusters for selected feature space
+    """
+    X = df[features].values
+    df[col_name] = encoder.fit_predict(X)
+    if target:
+        ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
+        d = ds.to_dict()
+        df[col_name].replace(d, inplace=True)
+    return df
 
 ###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
