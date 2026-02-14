@@ -328,76 +328,59 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_loadings(df: pd.DataFrame, features:list, enc, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
+def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
-    generates PCA loadings or kernal approximations for selected feature space
-    -----------
-    returns: 
-    df with new features added for the loadings or approximations
-    -----------
-    assumes: encoder is a scikit learn PCA or kernel approximation object
-    requires: pandas, scikit learn, matplotlib, seaborn, numpy
-    """
-    X_features = enc.fit_transform(np.float32(df[features]))
-    cols = [(col_names + str(i)) for i in range(index, index + X_features.shape[1])]
-    X_features = pd.DataFrame(X_features, columns=cols)
-    print(f'Added {len(cols)} {col_names} encoding features')
-    if verbose and target != None:
-        MY_PALETTE = get_colors()
-        f = 2 if hasattr(enc, 'explained_variance_ratio_') else 1 
-        fig, axs = plt.subplots(f,1, figsize=(5, 3*f))
-        X_features[target] = df[target]
-        palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
-        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=axs[0], legend=False, palette=palette
-                       ).set_title(f"{cols[1]} vs {cols[0]}")
-        X_features.drop(target, inplace = True, axis = 1)
-        if hasattr(enc, 'explained_variance_ratio_'):
-            ds = pd.Series(enc.explained_variance_ratio_, name ="var", index = cols)
-            ds[:10].plot(kind = 'barh', ax = axs[1], 
-                         title = f"Explained variance by {col_names} Encoding")
-        else: axs[1].remove()
-        plt.show()
-    return df.join(X_features)
-
-def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
-    """
-    generates UMAP encoding of selected feature space
+    fits a mapper to a sample of the data and then applys the mapping function to the full dataset to create new features
+    useful for generating UMAP encoding, PCA loadings or kernal approximations of selected feature space    
     -----------
     returns: 
     df with new features added for the encoding
+    if sample_size is provided, fits the mapper to a sample of the data and applies the mapping function to the full dataset
+    if sample_size is not provided, fits the mapper to the full dataset and uses the fitted model to transform the data
     -----------
-    assumes: encoder is a umap.UMAP object
-    requires: pandas, matplotlib, seaborn, numpy, umap, time
+    assumes: mapper is a scikit learn PCA or kernel approximation object with fit_transform method or a UMAP object with fit and transform methods
+    requires: pandas, matplotlib, seaborn, numpy, time
+    optional: umap
     """
     tic=time()
-    sample_size = max(int(df.shape[0] * 0.1), 10000)
-    if sample_size > df.shape[0]: df_sample = df
-    else: 
+    print("Training embedding function...")
+
+    if sample_size is not None:
+        if sample_size < 1.0:
+            n = min(int(df[df.target_mask.eq(True)].shape[0] * subset_pct), 10000)
+        else:
+            n = min(int(df[df.target_mask.eq(True)].shape[0]), int(sample_size))
+        df_sample = df[df.target_mask.eq(True)].sample(n=n, random_state=69)
+        mapper = mapper.fit(df_sample[features])
+        print("Mapping features to embeddings...")
+        reduced_data = mapper.transform(df[features])
+    else:
         try:
-            df_sample = df[df.target_mask.eq(True)].sample(n=sample_size, random_state=69)
+            reduced_data = mapper.fit_transform(np.float32(df[features]))
         except:
-            df_sample = df.sample(n=sample_size, random_state=69)
-    print("Training mapping function...")
-    mapper = mapper.fit(df_sample[features])
-    print("Mapping features to embeddings...")
-    reduced_data = mapper.transform(df[features])
-    
+            mapper = mapper.fit(df[features])
+            print("Mapping features to embeddings...")
+            reduced_data = mapper.transform(df[features])
     cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
     X_features = pd.DataFrame(reduced_data, columns=cols)
-    print(f"Added {len(cols)} UMAP features in {time()-tic:.2f}sec")
+    print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
 
-    if verbose and target != None:
-        p = get_colors()
+    if verbose:
         fig, ax = plt.subplots(figsize=(5, 3))
-        X_features[target] = df[target]
-        palette = 'cividis' if df[target].nunique() > len(p) else p
-        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, 
+        if target != None:
+            palette = get_colors(df[target].unique(), get_cmap=True)
+            X_features[target] = df[target]
+            hue=target
+        else: 
+            palette = get_colors()
+            hue=None
+        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=hue, 
                         ax=ax, legend=False, palette=palette
                        ).set_title(f"{cols[1]} vs {cols[0]}")
-        X_features.drop(target, inplace = True, axis = 1)
+        if target!= None: X_features.drop(target, inplace = True, axis = 1)
         plt.show()
-
     return df.join(X_features)
+
 
 def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose=True) -> pd.DataFrame:
     """
