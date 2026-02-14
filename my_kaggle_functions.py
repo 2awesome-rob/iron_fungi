@@ -77,7 +77,7 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
     -----------
     requires: seaborn, matplotlib
     """
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender', 'steel grey'])
+    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender'])
     if color_keys is None:
         if get_cmap: return mpl.colormaps[cmap_name]
         else: return MY_PALETTE
@@ -328,7 +328,7 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
+def get_loadings(df: pd.DataFrame, features:list, enc, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     generates PCA loadings or kernal approximations for selected feature space
     -----------
@@ -338,27 +338,28 @@ def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target
     assumes: encoder is a scikit learn PCA or kernel approximation object
     requires: pandas, scikit learn, matplotlib, seaborn, numpy
     """
-    X_features = Encoder.fit_transform(np.float32(df[features]))
+    X_features = enc.fit_transform(np.float32(df[features]))
     cols = [(col_names + str(i)) for i in range(index, index + X_features.shape[1])]
     X_features = pd.DataFrame(X_features, columns=cols)
     print(f'Added {len(cols)} {col_names} encoding features')
     if verbose and target != None:
         MY_PALETTE = get_colors()
-        fig, axs = plt.subplots(1,2, figsize=(5, 3))
+        f = 2 if hasattr(enc, 'explained_variance_ratio_') else 1 
+        fig, axs = plt.subplots(f,1, figsize=(5, 3*f))
         X_features[target] = df[target]
         palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
         sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=axs[0], legend=False, palette=palette
                        ).set_title(f"{cols[1]} vs {cols[0]}")
         X_features.drop(target, inplace = True, axis = 1)
-        if hasattr(Encoder, 'explained_variance_ratio_'):
-            ds = pd.Series(Encoder.explained_variance_ratio_, name ="var", index = cols)
+        if hasattr(enc, 'explained_variance_ratio_'):
+            ds = pd.Series(enc.explained_variance_ratio_, name ="var", index = cols)
             ds[:10].plot(kind = 'barh', ax = axs[1], 
                          title = f"Explained variance by {col_names} Encoding")
         else: axs[1].remove()
         plt.show()
     return df.join(X_features)
 
-def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
+def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     generates UMAP encoding of selected feature space
     -----------
@@ -371,10 +372,14 @@ def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, ta
     tic=time()
     sample_size = max(int(df.shape[0] * 0.1), 10000)
     if sample_size > df.shape[0]: df_sample = df
-    else: df_sample = df.sample(n=sample_size, random_state=69)
-    print("Training UMAP encoder...")
+    else: 
+        try:
+            df_sample = df[df.target_mask.eq(True)].sample(n=sample_size, random_state=69)
+        except:
+            df_sample = df.sample(n=sample_size, random_state=69)
+    print("Training mapping function...")
     mapper = mapper.fit(df_sample[features])
-    print("UMAP encoding features...")
+    print("Mapping features to embeddings...")
     reduced_data = mapper.transform(df[features])
     
     cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
@@ -410,19 +415,26 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
         df[col_name].replace(d, inplace=True)
+        if verbose: print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
     else:
         df[col_name] = df[col_name].astype('category')
     if verbose:
         print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values")
+        if np.sum(df[col_name] == -1) > 0:
+            print(f"Cluster feature '{col_name}' contains {np.sum(df[col_name] == -1)} noise points labeled as -1")
+
         if target:
-            p = get_colors()
-            palette = 'cividis' if df[col_name].nunique() > len(p) else p
-            print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
+            palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
+            palette['-1'] = "LightGrey"
+
             plot_features_eda(df, [col_name], target, label=None)
             fig, ax = plt.subplots(figsize=(5, 3))
             sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
                             hue=col_name, palette=palette, ax=ax, legend=False)
     return df
+
+
+
 
 ###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
