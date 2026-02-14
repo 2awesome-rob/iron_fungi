@@ -344,7 +344,7 @@ def get_loadings(df: pd.DataFrame, features:list, Encoder, col_names:str, target
     print(f'Added {len(cols)} {col_names} encoding features')
     if verbose and target != None:
         MY_PALETTE = get_colors()
-        fig, axs = plt.subplots(1,2, figsize=(7, 3))
+        fig, axs = plt.subplots(1,2, figsize=(5, 3))
         X_features[target] = df[target]
         palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
         sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=axs[0], legend=False, palette=palette
@@ -382,11 +382,12 @@ def get_umap_encoding(df: pd.DataFrame, features:list, mapper, col_names:str, ta
     print(f"Added {len(cols)} UMAP features in {time()-tic:.2f}sec")
 
     if verbose and target != None:
-        MY_PALETTE = get_colors()
-        fig, ax = plt.subplots(figsize=(4, 3))
+        p = get_colors()
+        fig, ax = plt.subplots(figsize=(5, 3))
         X_features[target] = df[target]
-        palette = 'cividis' if len(df[target].unique()) > len(MY_PALETTE) else MY_PALETTE
-        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, ax=ax, legend=False, palette=palette
+        palette = 'cividis' if df[target].nunique() > len(p) else p
+        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=target, 
+                        ax=ax, legend=False, palette=palette
                        ).set_title(f"{cols[1]} vs {cols[0]}")
         X_features.drop(target, inplace = True, axis = 1)
         plt.show()
@@ -414,9 +415,13 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
     if verbose:
         print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values")
         if target:
+            p = get_colors()
+            palette = 'cividis' if df[col_name].nunique() > len(p) else p
             print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
-            sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], hue=col_name, legend=False)
             plot_features_eda(df, [col_name], target, label=None)
+            fig, ax = plt.subplots(figsize=(5, 3))
+            sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
+                            hue=col_name, palette=palette, ax=ax, legend=False)
     return df
 
 ###EDA functions
