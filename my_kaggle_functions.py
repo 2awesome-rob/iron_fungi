@@ -347,7 +347,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
 
     if sample_size is not None:
         if sample_size < 1.0:
-            n = min(int(df[df.target_mask.eq(True)].shape[0] * subset_pct), 10000)
+            n = min(int(df[df.target_mask.eq(True)].shape[0] * sample_size), 10000)
         else:
             n = min(int(df[df.target_mask.eq(True)].shape[0]), int(sample_size))
         df_sample = df[df.target_mask.eq(True)].sample(n=n, random_state=69)
