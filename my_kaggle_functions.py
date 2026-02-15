@@ -339,8 +339,8 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
     if sample_size is not provided, fits the mapper to the full dataset and uses the fitted model to transform the data
     -----------
     assumes: mapper is a scikit learn PCA or kernel approximation object with fit_transform method or a UMAP object with fit and transform methods
-    requires: pandas, matplotlib, seaborn, numpy, time
-    optional: umap
+    requires: numpy, pandas, time, matplotlib, seaborn
+    optional: scikit learn, umap
     """
     tic=time()
     print("Training embedding function...")
@@ -380,7 +380,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         plt.show()
     return df.join(X_features)
 
-def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose=True) -> pd.DataFrame:
+def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose:bool=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
     -----------
@@ -388,8 +388,9 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
     - if target is provided, replaces cluster labels with mean target value creating a target-informed cluster feature
     -----------
     assumes: encoder is a scikit learn clustering object with fit_predict method
-    requires: pandas, scikit learn, numpy, matplotlib, seaborn
+    requires: numpy, pandas, scikit learn, time, matplotlib, seaborn
     """
+    tic = time()
     X = df[features].values
     df[col_name] = encoder.fit_predict(X)
     if target:
@@ -400,19 +401,18 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
     else:
         df[col_name] = df[col_name].astype('category')
     if verbose:
-        print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values")
+        print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values in {time()-tic:.2f}sec")
         if np.sum(df[col_name] == -1) > 0:
             print(f"Cluster feature '{col_name}' contains {np.sum(df[col_name] == -1)} noise points labeled as -1")
 
-        if target:
-            palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
-            palette['-1'] = "LightGrey"
-            try:
-                plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
-            except:
-                plot_features_eda(df, [col_name], target, label=None)
-            fig, ax = plt.subplots(figsize=(5, 3))
-            sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
+        palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
+        palette['-1'] = "LightGrey"
+        try:
+            plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
+        except:
+            plot_features_eda(df, [col_name], target, label=None)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
                             hue=col_name, palette=palette, ax=ax, legend=False)
     return df
 
