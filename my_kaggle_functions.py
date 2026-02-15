@@ -380,7 +380,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         plt.show()
     return df.join(X_features)
 
-def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose:bool=True) -> pd.DataFrame:
+def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, verbose:bool=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
     -----------
