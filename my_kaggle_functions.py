@@ -65,7 +65,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     return DEVICE, CORES 
 
 def get_colors(color_keys: list=None, get_cmap: bool=False, 
-                cmap_name: str='cividis', n_hues: int=None, n_sats: int=None):
+                cmap_name: str='cividis', n_hues: int=1, n_sats: int=1):
     """
     generates a palette or color map for visualizations
     -----------
@@ -81,7 +81,7 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
     if color_keys is None:
         if get_cmap: return mpl.colormaps[cmap_name]
         else: return MY_PALETTE
-    
+
     n_colors = len(color_keys)
     if get_cmap:
         if n_colors <= len(MY_PALETTE):
@@ -344,7 +344,6 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
     """
     tic=time()
     print("Training embedding function...")
-
     if sample_size is not None:
         if sample_size < 1.0:
             n = min(int(df[df.target_mask.eq(True)].shape[0] * sample_size), 10000)
@@ -381,7 +380,6 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         plt.show()
     return df.join(X_features)
 
-
 def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:str=None, verbose=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
@@ -409,8 +407,10 @@ def get_clusters(df: pd.DataFrame, features:list, col_name:str, encoder, target:
         if target:
             palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
             palette['-1'] = "LightGrey"
-
-            plot_features_eda(df, [col_name], target, label=None)
+            try:
+                plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
+            except:
+                plot_features_eda(df, [col_name], target, label=None)
             fig, ax = plt.subplots(figsize=(5, 3))
             sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
                             hue=col_name, palette=palette, ax=ax, legend=False)
