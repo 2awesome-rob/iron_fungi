@@ -396,6 +396,7 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
     if target:
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
+        d[-1] = -1
         df[col_name].replace(d, inplace=True)
         if verbose: print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
     else:
@@ -415,9 +416,6 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
                             hue=col_name, palette=palette, ax=ax, legend=False)
     return df
-
-
-
 
 ###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
