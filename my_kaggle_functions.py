@@ -9,12 +9,14 @@ import torch
 import random
 import itertools
 
+import optuna
 from tqdm import tqdm
 from time import time
 
 import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import plotly as go
 
 from multiprocessing import cpu_count
 
@@ -373,10 +375,11 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         else: 
             palette = get_colors()
             hue=None
-        sns.scatterplot(data=X_features[:1000], x=cols[0], y=cols[1], hue=hue, 
+        df_sampled = X_features.sample(n=min(800, X_features.shape[0]), random_state=69)
+        sns.scatterplot(data=df_sampled, x=cols[0], y=cols[1], hue=hue, 
                         ax=ax, legend=False, palette=palette
                        ).set_title(f"{cols[1]} vs {cols[0]}")
-        if target!= None: X_features.drop(target, inplace = True, axis = 1)
+        if target != None: X_features.drop(target, inplace = True, axis = 1)
         plt.show()
     return df.join(X_features)
 
@@ -392,29 +395,31 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
     """
     tic = time()
     X = df[features].values
+    if verbose: print(f"Encoding cluster feature '{col_name}'")
     df[col_name] = encoder.fit_predict(X)
-    if target:
+    df[f"{col_name}_noise"] = df[col_name] == -1
+    if target is not None:
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
-        d[-1] = -1
         df[col_name].replace(d, inplace=True)
         if verbose: print(f"Cluster feature '{col_name}' replaced with mean target value by cluster")
     else:
         df[col_name] = df[col_name].astype('category')
     if verbose:
         print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values in {time()-tic:.2f}sec")
-        if np.sum(df[col_name] == -1) > 0:
-            print(f"Cluster feature '{col_name}' contains {np.sum(df[col_name] == -1)} noise points labeled as -1")
-
+        noise_pct = 100 * df[f"{col_name}_noise"].sum() / df.shape[0]
+        if noise_pct > 0: print(f"Cluster feature '{col_name}' identified {noise_pct:.2f}% noise")
         palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
-        palette['-1'] = "LightGrey"
         try:
             plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
         except:
             plot_features_eda(df, [col_name], target, label=None)
+        df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
         fig, ax = plt.subplots(figsize=(5, 3))
-        sns.scatterplot(data=df[:1000], x=df[features[0]], y=df[features[1]], 
-                            hue=col_name, palette=palette, ax=ax, legend=False)
+        sns.scatterplot(data=df_sampled, x=df_sampled[features[0]], y=df_sampled[features[1]], 
+                            hue=col_name, alpha = 0.7, palette=palette, ax=ax, legend=False)
+    if not df[f"{col_name}_noise"].any():
+        df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
 
 ###EDA functions
@@ -804,6 +809,140 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task =
         print("=" * 69)
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
+
+
+def study_classifier_hyperparameters(df, features, target, study_model, 
+                                     metric='classification', direction='maximize',
+                                     n_trials=20, timeout=1200,
+                                     CORES=4, DEVICE='cpu', verbose = True):
+    '''
+    studies impact of hyperparameters on study models
+    study_models for: 
+        'lgb' : lgb.LGBMClassifier(),
+        'xgb' : xgb.XGBClassifier(), 
+        'catb' : catb.CatBoostClassifier(), 
+        'hist' : skl.ensemble.HistGradientBoostingClassifier(),
+        'rf' : skl.ensemble.RandomForestClassifier(),
+        'lr' : skl.linear_model.LogisticRegression(),
+    --------
+    returns a dictionary of "good" hyperparamters for a given study_model, features, target
+    --------
+    requires: pandas, numpy, optuna, plotly.go, lgb, xgm, catb, scikit
+    '''
+    SEED=69
+    cat_list = [f for f in features if df[f].dtype == "category"]
+
+    def _study_objective(trial, study_model, X_train, y_train, X_val, y_val, 
+                         cat_features=cat_list, metric=metric):
+        if study_model == 'lgb':
+            study_params = {
+                'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),  #Default=100
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42), #Default=0.1
+                'num_leaves':trial.suggest_int('num_leaves', 20, 96, step=4), #Default=31
+                'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069), #Default=0.0
+                'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069), #Default=0.0
+                'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
+                'verbose': trial.suggest_categorical('verbose', [-1]),
+            }
+            model = lgb.LGBMClassifier(**study_params, random_state=SEED)
+
+        elif study_model == 'xgb':
+            study_params = {
+                'n_estimators': trial.suggest_int('n_estimators', 96, 640, step=16),  
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42),
+                'max_leaves':trial.suggest_int('max_leaves', 20, 192, step=4),
+                'max_bins':trial.suggest_int('max_bins', 16, 208, step=4),
+                'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069),
+                'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069),
+                'gamma': trial.suggest_float('gamma', 0.0042, 0.042),
+                'device': trial.suggest_categorical('device', [DEVICE]),
+                'verbosity': trial.suggest_categorical('verbosity', [0]),
+                'enable_categorical': trial.suggest_categorical('enable_categorical', [True]),
+            }
+            model = xgb.XGBClassifier(**study_params, random_state=SEED)
+
+        elif study_model == 'catb':
+            task_type='GPU' if DEVICE == "cuda" else 'CPU'
+            study_params = {
+                'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),  
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, 0.42),
+                'l2_leaf_reg': trial.suggest_loguniform('l2_leaf_reg', 0.0001, 0.1),
+                'model_size_reg': trial.suggest_loguniform('model_size_reg', 0.00042, 0.42),
+                'task_type': trial.suggest_categorical('task_type', [task_type]),
+                'cat_features': trial.suggest_categorical('cat_features', [cat_features]),
+                'verbose': trial.suggest_categorical('verbose', [0]),
+            }
+            model = catb.CatBoostClassifier(**study_params, random_seed=SEED)
+        
+        elif study_model == 'hgb':
+            study_params = {
+                'max_iter': trial.suggest_int('max_iter', 1000, 1066),   #Default=100
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0069, 0.69), #Default=0.1
+                'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 20, 128, step=4),  #Default=31
+                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 16, 36), #Default=20
+                'l2_regularization': trial.suggest_loguniform('l2_regularization', 0.000001, 0.01), #Default=0.0
+                'early_stopping': trial.suggest_categorical('early_stopping', [True]), #Default='auto'
+            }
+            model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
+        
+        elif study_model == 'rf':
+            study_params = {
+                'n_estimators': trial.suggest_int('n_estimators', 67, 167),  #Default=100
+                'criterion': trial.suggest_categorical('criterion', ["gini", "entropy", "log_loss"]), #Default='squared_error'
+                'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
+                
+            }
+            # need work to incorporate cuml
+#            if DEVICE == "cuda": model = cuml.ensemble.RandomForestClassifier(**study_params, output_type="numpy")
+#            else: 
+            model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
+
+        elif study_model == 'lr':
+            study_params = {
+                'C': trial.suggest_loguniform('C', 0.067, 6.7),  #Default=1
+                'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),      
+                'solver': trial.suggest_categorical('solver', ["lbfgs", "sag", "saga"]), #Default='squared_error'
+            }
+            model = skl.linear_model.LogisticRegression(random_state=SEED)
+        else:
+            raise ValueError("Unrecognized model type")
+
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_val) 
+        return  mkf.calculate_score(y_val, y_pred, metric=metric)
+
+    # Main loop    
+    print("=" * 69)
+    print(f"study hyperparameters")
+    print("=" * 69)
+    
+    X_train, y_train, X_val, y_val, _, _ = split_training_data(df, features, target, validation_size = 0.2)
+    idx = X_train.sample(n=min(25000, X_train.shape[0]), random_state=69).index
+    X_t = X_train.loc[idx]
+    y_t = y_train.loc[idx]
+    
+    tic = time()
+    study = optuna.create_study(direction=direction)
+    study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val),
+                   n_trials=n_trials,
+                   timeout=timeout)
+    toc = time()
+    trial = study.best_trial
+    if verbose == True:
+        fig = optuna.visualization.plot_optimization_history(study)
+        go.io.show(fig)
+        fig = optuna.visualization.plot_slice(study)
+        go.io.show(fig)
+        print("=" * 69)
+        print(study.best_params)
+        print("=" * 69)
+        print(f"Average Trial Duration {(toc - tic)/n_trials:.3f}sec")
+        print(f"Number of finished trials: {len(study.trials)}") 
+    print(f"Best trial:\n  {metric} value: {trial.value}\n  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
+    return study.best_params
+
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, models: list, 
                      task: str='regression', path: str="", 
