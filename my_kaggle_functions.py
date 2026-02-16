@@ -990,7 +990,7 @@ def get_model_hyperparameters(df: pd.DataFrame, features: list, target:str, base
             )
 
     models = {
-        k: model_cls(**params[name])
+        k: model_cls(**params[k])
         for k, model_cls in base_models.items()
     }
     return models, training_features
@@ -1025,7 +1025,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     print(f"Training {len(models.keys())} Models")
     print("=" * 69)
     all_features = _get_all_features(features)
-    X, y, _, _, X_test, y_test = mkf.split_training_data(df, all_features, target)
+    X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
     trained_models = {}
 
     for i, (k, model) in enumerate(models.items()):
