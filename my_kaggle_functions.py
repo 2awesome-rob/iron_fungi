@@ -909,7 +909,7 @@ def study_classifier_hyperparameters(df, features, target, study_model,
 
         model.fit(X_train, y_train)
         y_pred = model.predict(X_val) 
-        return  mkf.calculate_score(y_val, y_pred, metric=metric)
+        return  calculate_score(y_val, y_pred, metric=metric)
 
     # Main loop    
     print("=" * 69)
