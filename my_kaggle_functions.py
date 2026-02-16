@@ -998,9 +998,9 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
 
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict, 
                     task: str="regression", folds: int=7, TargetTransformer=None,
-                    verbose: bool=True)-> dict:
+                    verbose: bool=True)-> (dict, "meta_model"):
     """
-    trains models with cross validation and returns trained models and OOF validation scores
+    trains models with cross validation and returns trained models and a "meta" stacking model
     -----------
     for each model in models, trains with cross validation using the corresponding feature subset in features
     returns a dictionary of trained models
@@ -1058,11 +1058,112 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         if verbose == True: 
             plot_training_results(X_t, X_v, y_t, y_v, oof_pred[val_idx],
                               task=task, TargetTransformer=TargetTransformer) 
+    ### add a "meta" model here if desired for stacking/blending
+    return trained_models, meta_model
 
-    return trained_models
+
+def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
+                    task: str = "regression", folds: int = 7,
+                    TargetTransformer=None, verbose: bool = True):
+    """
+    trains models with cross validation and returns trained models and a stacking meta model
+    -----------
+    for each model in models, trains with cross validation using the corresponding feature subset in features
+    returns a dictionary of trained models and a meta stacking model
+    prints OOF validation score for each model
+    task determines the prediction and scoring method used for validation
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+    def _get_all_features(features=features):
+        list_of_lists = [f for f in features.values()]
+        flat = []
+        seen = set()
+        for sub in list_of_lists:
+            for item in sub:
+                if item not in seen:
+                    seen.add(item)
+                    flat.append(item)
+        return flat
+
+    print("=" * 69)
+    print(f"Training {len(models.keys())} Models")
+    print("=" * 69)
+
+    all_features = _get_all_features(features)
+    X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
+
+    trained_models = {}
+    model_names = list(models.keys())
+    n_models = len(model_names)
+
+    oof_matrix = np.zeros((y.shape[0], n_models))
+
+    for i, (k, model) in enumerate(models.items()):
+        print(f"Training Model: {k}")
+
+        if task == "regression":
+            cv = skl.model_selection.KFold(
+                n_splits=folds, shuffle=True, random_state=69 + i
+            )
+        else:
+            cv = skl.model_selection.StratifiedKFold(
+                n_splits=folds, shuffle=True, random_state=69 + i
+            )
+
+        cv_models = []
+        oof_pred = np.zeros(y.shape[0])
+
+        for (train_idx, val_idx) in tqdm(cv.split(X, y), desc="training models", unit="folds"):
+            X_t, X_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx]
+            y_t, y_v = y.iloc[train_idx], y.iloc[val_idx]
+
+            try:
+                model.fit(X_t, y_t, eval_set=[(X_v, y_v)], verbose=False)
+            except Exception:
+                model.fit(X_t, y_t)
+
+            if task == "classification_probability":
+                y_v_pred = model.predict_proba(X_v)[:, 1]
+            else:
+                y_v_pred = model.predict(X_v)
+
+            oof_pred[val_idx] = y_v_pred
+            cv_models.append(model)
+
+        trained_models[k] = cv_models
+        oof_matrix[:, i] = oof_pred
+
+        if TargetTransformer is None:
+            oof_eval = np.array(oof_pred).reshape(-1, 1)
+        else:
+            oof_eval = TargetTransformer.inverse_transform(
+                np.array(oof_pred).reshape(-1, 1)
+            )
+
+        score = calculate_score(y, oof_eval, metric=task)
+        print(f"Score:  {score:.4f}\n")
+        print(f"***  model {k} score:  {score:.4f}  ***")
+
+        if verbose:
+            # note: plotting last fold's X_t, X_v, y_t, y_v, and corresponding preds
+            plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
+                task=task, TargetTransformer=TargetTransformer)
+
+    # ---- Stacking meta-model on OOF predictions ----
+    if task == "regression":
+        meta_model = skl.linear.Ridge(alpha=1.0)
+    else:
+        meta_model = skl.linear.LogisticRegression(max_iter=1000)
+    meta_model.fit(oof_matrix, y)
+
+    return trained_models, meta_model
+
 
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
-                      models: dict, task: str='regression', TargetTransformer=None,
+                      models: dict, task: str='regression', 
+                      TargetTransformer=None, meta_model=None,
                       path: str="", verbose: bool=True)-> np.ndarray:
     """
     makes predictions with cross validated models and returns predictions
@@ -1074,8 +1175,11 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
     """
-    y_test = np.zeros(y.shape[0])
-    for k, cv_models in models.items():
+    if meta_model is None:
+        y_test = np.zeros(y.shape[0])
+    else:
+        y_oof_matrix = np.zeros((y.shape[0], len(models.keys())))
+    for i, (k, cv_models) in enumerate(models.items()):
         y_cv = np.zeros(y.shape[0])
         for model in cv_models:
             if task == "classification_probability":
@@ -1083,8 +1187,15 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
             else:
                 y_cv += model.predict(X_test[features[k]])
         y_cv /= len(cv_models)
-        y_test += y_cv
-    y_test /= len(models.keys())
+        if meta_model is None:
+            y_test += y_cv
+        else:
+            y_oof_matrix[:, i] = y_cv
+
+    if meta_model is None:
+        y_test /= len(models.keys())
+    else:
+        y_test = meta_model.predict(y_oof_matrix)
     
     if TargetTransformer == None:
         y_pred = np.array(y_test).reshape(-1, 1)
