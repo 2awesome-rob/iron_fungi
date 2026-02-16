@@ -1181,11 +1181,12 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
         y_oof_matrix = np.zeros((y.shape[0], len(models.keys())))
     for i, (k, cv_models) in enumerate(models.items()):
         y_cv = np.zeros(y.shape[0])
+        training_features = features[k]
         for model in cv_models:
             if task == "classification_probability":
-                y_cv += model.predict_proba(X[features[k]])[:, 1]
+                y_cv += model.predict_proba(X[training_features])[:, 1]
             else:
-                y_cv += model.predict(X_test[features[k]])
+                y_cv += model.predict(X[training_features])
         y_cv /= len(cv_models)
         if meta_model is None:
             y_test += y_cv
