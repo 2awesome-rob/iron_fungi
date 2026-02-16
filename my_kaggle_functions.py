@@ -1062,7 +1062,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', TargetTransformer=None,
-                      path: str="", verbose: bool=True)-> dict:
+                      path: str="", verbose: bool=True)-> np.ndarray:
     """
     makes predictions with cross validated models and returns predictions
     -----------
