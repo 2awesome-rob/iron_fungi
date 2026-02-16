@@ -838,7 +838,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
 
     def _study_objective(trial, study_model, X_train, y_train, X_val, y_val, 
                          cat_features=cat_list, metric=metric):
-        if study_model == 'lgb':
+        if 'lgb' in study_model or 'light' in study_model:
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),      # Default=100
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42),  # Default=0.1
@@ -850,7 +850,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
             }
             model = lgb.LGBMClassifier(**study_params, random_state=SEED)
 
-        elif study_model == 'xgb':
+        elif 'xgb' in study_model:
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 96, 640, step=16),  
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42),
@@ -865,7 +865,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
             }
             model = xgb.XGBClassifier(**study_params, random_state=SEED)
 
-        elif study_model == 'catb':
+        elif 'catb' in study_model:
             task_type='GPU' if DEVICE == "cuda" else 'CPU'
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),  
@@ -878,7 +878,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
             }
             model = catb.CatBoostClassifier(**study_params, random_seed=SEED)
         
-        elif study_model == 'hgb':
+        elif 'hgb' in study_model or 'hist' in study_model:
             study_params = {
                 'max_iter': trial.suggest_int('max_iter', 1000, 1066),                               # Default=100
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.0069, 0.69),            # Default=0.1
@@ -889,7 +889,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
             }
             model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
         
-        elif study_model == 'rf':
+        elif 'rf' in study_model or 'forest' in study_model or 'random' in study_model:
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 67, 167),                           # Default=100
                 'criterion': trial.suggest_categorical('criterion', ["gini", "entropy", "log_loss"]), # Default='squared_error'
@@ -901,7 +901,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
 #            else: 
             model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
 
-        elif study_model == 'lr':
+        elif 'lr' in study_model or 'log' in study_model:
             study_params = {
                 'C': trial.suggest_loguniform('C', 0.067, 6.7),                          # Default=1 
                 'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),             # Default=100
@@ -917,7 +917,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
 
     # Main loop    
     print("=" * 69)
-    print(f"study hyperparameters")
+    print(f"Studying {study_model} hyperparameters")
     print("=" * 69)
     
     X_train, y_train, X_val, y_val, _, _ = split_training_data(df, features, target, validation_size = 0.2)
@@ -937,17 +937,18 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
         go.io.show(fig)
         fig = optuna.visualization.plot_slice(study)
         go.io.show(fig)
-        print("=" * 69)
-        print(study.best_params)
-        print("=" * 69)
         print(f"Average Trial Duration {(toc - tic)/n_trials:.3f}sec")
         print(f"Number of finished trials: {len(study.trials)}") 
-    print(f"Best trial:\n  {metric} value: {trial.value}\n  Params: ")
-    for key, value in trial.params.items():
-        print(f"    {key}: {value}")
+        print(f"Best trial:\n  {metric} value: {trial.value}\n  Params: ")
+        for key, value in trial.params.items():
+            print(f"    {key}: {value}")
+    else:
+        print("=" * 69)
+        print(f"Best {study_model} params: {study.best_params}")
+        print("=" * 69)
     return study.best_params
 
-def get_model_hyperparameters(df: pd.DataFrame, features: list, target:str, base_models:dict, 
+def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
                               n_features: int=3, task: str='regression', direction: str='minimize',
                               n_trials: int=22, timeout: int=1200,
                               CORES: int=4, DEVICE: str='cpu', 
