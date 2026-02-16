@@ -2,10 +2,14 @@
 import numpy as np
 import pandas as pd 
 
-import lightgbm as lgb
 import sklearn as skl
+import lightgbm as lgb
+import xgboost as xgb
+import catboost as catb
+
 import torch
 
+#import math
 import random
 import itertools
 
@@ -13,9 +17,9 @@ import optuna
 from tqdm import tqdm
 from time import time
 
-import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import seaborn as sns
 import plotly as go
 
 from multiprocessing import cpu_count
@@ -290,7 +294,9 @@ def split_training_data(df: pd.DataFrame, features: list, targets, validation_si
     X = df[df.target_mask.eq(True)][features]
     y = df[df.target_mask.eq(True)][targets]
     
-    if type(validation_size) is float:
+    if validation_size is None:
+        return X, y, X_test, y_test, X_test, y_test
+    elif type(validation_size) is float:
         X_train, X_val, y_train, y_val  = skl.model_selection.train_test_split(X, y, test_size = validation_size, random_state = SEED)
         return X_train, y_train, X_val,  y_val, X_test, y_test
     elif type(validation_size) is pd.Index: 
@@ -766,11 +772,10 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
         y_v = np.array(y_val).reshape(-1, 1)
         y_p = np.array(y_predict).reshape(-1, 1)
     score = calculate_score(y_v, y_p, metric = task)
+    print(f"***  model score:  {score:.4f}  ***")
     if verbose == True: 
         plot_training_results(X_train, X_val, y_train, y_v, y_p,
-                              task=task, TargetTransformer=TargetTransformer)
-    else: 
-        print(f"***  model score:  {score:.4f}  ***")
+                              task=task, TargetTransformer=TargetTransformer) 
     return model, score
 
 def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task = "regression"):
@@ -810,24 +815,23 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task =
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
-
-def study_classifier_hyperparameters(df, features, target, study_model, 
-                                     metric='classification', direction='maximize',
-                                     n_trials=20, timeout=1200,
-                                     CORES=4, DEVICE='cpu', verbose = True):
+def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
+                                     metric: str='regression', direction: str='minimize',
+                                     n_trials: int=20, timeout: int=1200,
+                                     CORES: int=4, DEVICE: str='cpu', verbose: bool=True)-> dict:
     '''
     studies impact of hyperparameters on study models
-    study_models for: 
-        'lgb' : lgb.LGBMClassifier(),
-        'xgb' : xgb.XGBClassifier(), 
-        'catb' : catb.CatBoostClassifier(), 
-        'hist' : skl.ensemble.HistGradientBoostingClassifier(),
-        'rf' : skl.ensemble.RandomForestClassifier(),
-        'lr' : skl.linear_model.LogisticRegression(),
     --------
     returns a dictionary of "good" hyperparamters for a given study_model, features, target
+    supports study_models for: 
+        'hgb' : skl.ensemble.HistGradientBoostingClassifier,
+        'rf' : skl.ensemble.RandomForestClassifier,
+        'lr' : skl.linear_model.LogisticRegression,
+        'lgb' : lgb.LGBMClassifier,
+        'xgb' : xgb.XGBClassifier, 
+        'catb' : catb.CatBoostClassifier
     --------
-    requires: pandas, numpy, optuna, plotly.go, lgb, xgm, catb, scikit
+    requires: numpy, pandas, optuna, plotly, scikit learn, lightgbm, xgboost, catboost
     '''
     SEED=69
     cat_list = [f for f in features if df[f].dtype == "category"]
@@ -836,11 +840,11 @@ def study_classifier_hyperparameters(df, features, target, study_model,
                          cat_features=cat_list, metric=metric):
         if study_model == 'lgb':
             study_params = {
-                'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),  #Default=100
-                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42), #Default=0.1
-                'num_leaves':trial.suggest_int('num_leaves', 20, 96, step=4), #Default=31
-                'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069), #Default=0.0
-                'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069), #Default=0.0
+                'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),      # Default=100
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, .42),  # Default=0.1
+                'num_leaves':trial.suggest_int('num_leaves', 20, 96, step=4),             # Default=31
+                'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069),       # Default=0.0
+                'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069),      # Default=0.0
                 'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
                 'verbose': trial.suggest_categorical('verbose', [-1]),
             }
@@ -876,19 +880,19 @@ def study_classifier_hyperparameters(df, features, target, study_model,
         
         elif study_model == 'hgb':
             study_params = {
-                'max_iter': trial.suggest_int('max_iter', 1000, 1066),   #Default=100
-                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0069, 0.69), #Default=0.1
-                'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 20, 128, step=4),  #Default=31
-                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 16, 36), #Default=20
-                'l2_regularization': trial.suggest_loguniform('l2_regularization', 0.000001, 0.01), #Default=0.0
-                'early_stopping': trial.suggest_categorical('early_stopping', [True]), #Default='auto'
+                'max_iter': trial.suggest_int('max_iter', 1000, 1066),                               # Default=100
+                'learning_rate': trial.suggest_loguniform('learning_rate', 0.0069, 0.69),            # Default=0.1
+                'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 20, 128, step=4),              # Default=31
+                'min_samples_leaf': trial.suggest_int('min_samples_leaf', 16, 36),                   # Default=20
+                'l2_regularization': trial.suggest_loguniform('l2_regularization', 0.000001, 0.01),  # Default=0.0
+                'early_stopping': trial.suggest_categorical('early_stopping', [True]),               # Default='auto'
             }
             model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
         
         elif study_model == 'rf':
             study_params = {
-                'n_estimators': trial.suggest_int('n_estimators', 67, 167),  #Default=100
-                'criterion': trial.suggest_categorical('criterion', ["gini", "entropy", "log_loss"]), #Default='squared_error'
+                'n_estimators': trial.suggest_int('n_estimators', 67, 167),                           # Default=100
+                'criterion': trial.suggest_categorical('criterion', ["gini", "entropy", "log_loss"]), # Default='squared_error'
                 'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
                 
             }
@@ -899,9 +903,9 @@ def study_classifier_hyperparameters(df, features, target, study_model,
 
         elif study_model == 'lr':
             study_params = {
-                'C': trial.suggest_loguniform('C', 0.067, 6.7),  #Default=1
-                'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),      
-                'solver': trial.suggest_categorical('solver', ["lbfgs", "sag", "saga"]), #Default='squared_error'
+                'C': trial.suggest_loguniform('C', 0.067, 6.7),                          # Default=1 
+                'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),             # Default=100
+                'solver': trial.suggest_categorical('solver', ["lbfgs", "sag", "saga"]), # Default='lbfgs'
             }
             model = skl.linear_model.LogisticRegression(random_state=SEED)
         else:
@@ -943,14 +947,174 @@ def study_classifier_hyperparameters(df, features, target, study_model,
         print(f"    {key}: {value}")
     return study.best_params
 
+def get_model_hyperparameters(df: pd.DataFrame, features: list, target:str, base_models:dict, 
+                              n_features: int=3, task: str='regression', direction: str='minimize',
+                              n_trials: int=22, timeout: int=1200,
+                              CORES: int=4, DEVICE: str='cpu', 
+                              hyper_params: dict=None, verbose: bool=True)-> tuple(dict, dict):
+    """
+    enables training multiple models with different feature subsets and hyperparameters
+    instantiates each models with hyperparameters
+        use hyper_params to provide a dictionary of hyperparameters for each model
+        if model hyper_params are not provided, uses optuna to find good hyperparameters for each model
+    identifies different feature subsets for each model 
+        use n_features = 1 to use all features for each model
+        use n_features > 1 to use different 1/n subsets of features for each model
+    --------
+    returns:
+        a dictionary of models ready for training and
+        a dictionary of feature subsets used for training each model
+    --------
+    requires: numpy, pandas
+    optional: optuna, plotly, scikit learn, lightgbm, xgboost, catboost
+    """
+    def _every_nth(seq, n, start=0): return seq[start::n]
 
-def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, models: list, 
-                     task: str='regression', path: str="", 
-                     verbose: bool=True, TargetTransformer=None)-> np.ndarray:
+    params = {}
+    training_features = {}
+
+    for i, (k, model_cls) in enumerate(base_models.items()):
+        if n_features <= 1:
+            feats = features
+        else:
+            feats = _every_nth(features, n_features, start = i//n_features)
+        training_features[k] = feats
+        if hyper_params is not None and k in hyper_params:
+            params[k] = hyper_params[k]
+        else:
+            params[k] = study_classifier_hyperparameters(
+                df, feats, target, k,
+                metric=task, direction=direction,
+                n_trials=n_trials, timeout=timeout,
+                CORES=CORES, DEVICE=DEVICE, verbose=verbose
+            )
+
+    models = {
+        k: model_cls(**params[name])
+        for k, model_cls in base_models.items()
+    }
+    return models, training_features
+
+def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict, 
+                    task: str="regression", folds: int=7, TargetTransformer=None,
+                    verbose: bool=True)-> dict:
+    """
+    trains models with cross validation and returns trained models and OOF validation scores
+    -----------
+    for each model in models, trains with cross validation using the corresponding feature subset in features
+    returns a dictionary of trained models
+    prints OOF validation score for each model
+    task determines the prediction and scoring method used for validation
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+
+    def _get_all_features(features=features):
+        list_of_lists = [f for f in features.values()]
+        flat = []
+        seen = set()
+        for sub in list_of_lists:
+            for item in sub:
+                if item not in seen:
+                    seen.add(item)
+                    flat.append(item)
+        return flat
+
+    print("=" * 69)
+    print(f"Training {len(models.keys())} Models")
+    print("=" * 69)
+    all_features = _get_all_features(features)
+    X, y, _, _, X_test, y_test = mkf.split_training_data(df, all_features, target)
+    trained_models = {}
+
+    for i, (k, model) in enumerate(models.items()):
+        print(f"Training Model: {k}")
+        if task == "regression": 
+            cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69+i)
+        else:
+            cv = skl.model_selection.StratifiedKFold(n_splits=folds, shuffle=True, random_state=69+i)
+        cv_models=[]
+        oof_pred = np.zeros(y.shape[0])
+        for (train_idx, val_idx) in tqdm(cv.split(X, y), desc ="training modes", unit="folds"):
+            X_t, X_v, y_t, y_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx], y.iloc[train_idx], y.iloc[val_idx]
+            try: model.fit(X_t, y_t, eval_set=[(X_v, y_v)])
+            except: model.fit(X_t, y_t)
+            if task == "classification_probability":
+                y_v_pred = model.predict_proba(X_v)
+            else:
+                y_v_pred = model.predict(X_v)
+            oof_pred[val_idx] = y_v_pred[:, 1]
+            cv_models.append(model)
+        trained_models[k] = cv_models
+        if TargetTransformer == None:
+            oof_pred = np.array(oof_pred).reshape(-1, 1)
+        else:
+            oof_pred = TargetTransformer.inverse_transform(np.array(oof_pred).reshape(-1, 1))
+        score = calculate_score(y, oof_pred, metric=task)
+        print(f"Score:  {score:.4f}\n")
+        print(f"***  model score:  {score:.4f}  ***")
+        if verbose == True: 
+            plot_training_results(X_t, X_v, y_t, y_v, oof_pred[val_idx],
+                              task=task, TargetTransformer=TargetTransformer) 
+
+    return trained_models
+
+def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
+                      models: dict, task: str='regression', TargetTransformer=None,
+                      path: str="", verbose: bool=True)-> dict:
+    """
+    makes predictions with cross validated models and returns predictions
+    -----------
+    for each model in models, makes predictions with each fold model and averages predictions for each model
+    averages predictions across models to get final predictions
+    returns a array of predictions for submission
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+    y_test = np.zeros(y.shape[0])
+    for k, cv_models in models.items():
+        y_cv = np.zeros(y.shape[0])
+        for model in cv_models:
+            if task == "classification_probability":
+                y_cv += model.predict_proba(X[features[k]])[:, 1]
+            else:
+                y_cv += model.predict(X_test[features[k]])
+        y_cv /= len(cv_models)
+        y_test += y_cv
+    y_test /= len(models.keys())
+    
+    if TargetTransformer == None:
+        y_pred = np.array(y_test).reshape(-1, 1)
+    else:
+        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
     
     SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
-    y_test = np.zeros(X.shape[0])
-    
+    SUBMISSION[target] = y_pred
+    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
+
+    if verbose:
+        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
+
+    print("=" * 6, 'save success', "=" * 6, "\n")
+    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
+
+    return y_pred
+
+def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
+                       models: list, task: str='regression', TargetTransformer=None, 
+                       path: str="", verbose: bool=True, )-> np.ndarray:
+    """
+    makes predictions with trained models and saves submission file
+    -----------
+    for each model in models, makes predictions with the model and averages predictions
+    saves predictions to submission file in path
+    -----------
+    requires: numpy, pandas, scikit learn
+    """
+    y_test = np.zeros(y.shape[0])
+
     for m in models:
         if task == "classification_probability":
              y_test += m.predict_proba(X)[:, 1]
@@ -963,6 +1127,7 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, models: list,
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
 
+    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
     SUBMISSION[target] = y_pred
     SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
 
