@@ -951,7 +951,7 @@ def get_model_hyperparameters(df: pd.DataFrame, features: list, target:str, base
                               n_features: int=3, task: str='regression', direction: str='minimize',
                               n_trials: int=22, timeout: int=1200,
                               CORES: int=4, DEVICE: str='cpu', 
-                              hyper_params: dict=None, verbose: bool=True)-> tuple(dict, dict):
+                              hyper_params: dict=None, verbose: bool=True)-> (dict, dict):
     """
     enables training multiple models with different feature subsets and hyperparameters
     instantiates each models with hyperparameters
