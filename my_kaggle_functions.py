@@ -1091,7 +1091,10 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     if task == "regression":
         meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
-        meta_model = skl.linear_model.LogisticRegression(max_iter=1000)
+        #meta_model = skl.linear_model.LogisticRegression(max_iter=1000)
+        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(128,64), 
+                                                      max_iter=1000, 
+                                                      early_stopping=True)
     meta_model.fit(oof_matrix, y)
 
     return trained_models, meta_model
@@ -1130,6 +1133,8 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
 
     if meta_model is None:
         y_test /= len(models.keys())
+    elif task == "classification_probability":
+        y_test = meta_model.predict_proba(y_oof_matrix)
     else:
         y_test = meta_model.predict(y_oof_matrix)
     
