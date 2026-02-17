@@ -998,71 +998,6 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     }
     return models, training_features
 
-def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict, 
-                    task: str="regression", folds: int=7, TargetTransformer=None,
-                    verbose: bool=True)-> (dict, "meta_model"):
-    """
-    trains models with cross validation and returns trained models and a "meta" stacking model
-    -----------
-    for each model in models, trains with cross validation using the corresponding feature subset in features
-    returns a dictionary of trained models
-    prints OOF validation score for each model
-    task determines the prediction and scoring method used for validation
-    -----------
-    requires: numpy, pandas, scikit learn
-    optional: lightgbm, xgboost, catboost
-    """
-
-    def _get_all_features(features=features):
-        list_of_lists = [f for f in features.values()]
-        flat = []
-        seen = set()
-        for sub in list_of_lists:
-            for item in sub:
-                if item not in seen:
-                    seen.add(item)
-                    flat.append(item)
-        return flat
-
-    print("=" * 69)
-    print(f"Training {len(models.keys())} Models")
-    print("=" * 69)
-    all_features = _get_all_features(features)
-    X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
-    trained_models = {}
-
-    for i, (k, model) in enumerate(models.items()):
-        print(f"Training Model: {k}")
-        if task == "regression": 
-            cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69+i)
-        else:
-            cv = skl.model_selection.StratifiedKFold(n_splits=folds, shuffle=True, random_state=69+i)
-        cv_models=[]
-        oof_pred = np.zeros(y.shape[0])
-        for (train_idx, val_idx) in tqdm(cv.split(X, y), desc ="training modes", unit="folds"):
-            X_t, X_v, y_t, y_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx], y.iloc[train_idx], y.iloc[val_idx]
-            try: model.fit(X_t, y_t, eval_set=[(X_v, y_v)])
-            except: model.fit(X_t, y_t)
-            if task == "classification_probability":
-                y_v_pred = model.predict_proba(X_v)
-            else:
-                y_v_pred = model.predict(X_v)
-            oof_pred[val_idx] = y_v_pred[:, 1]
-            cv_models.append(model)
-        trained_models[k] = cv_models
-        if TargetTransformer == None:
-            oof_pred = np.array(oof_pred).reshape(-1, 1)
-        else:
-            oof_pred = TargetTransformer.inverse_transform(np.array(oof_pred).reshape(-1, 1))
-        score = calculate_score(y, oof_pred, metric=task)
-        print(f"Score:  {score:.4f}\n")
-        print(f"***  model score:  {score:.4f}  ***")
-        if verbose == True: 
-            plot_training_results(X_t, X_v, y_t, y_v, oof_pred[val_idx],
-                              task=task, TargetTransformer=TargetTransformer) 
-    ### add a "meta" model here if desired for stacking/blending
-    return trained_models, meta_model
-
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     task: str = "regression", folds: int = 7,
                     TargetTransformer=None, verbose: bool = True):
@@ -1154,9 +1089,9 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
     # ---- Stacking meta-model on OOF predictions ----
     if task == "regression":
-        meta_model = skl.linear.Ridge(alpha=1.0)
+        meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
-        meta_model = skl.linear.LogisticRegression(max_iter=1000)
+        meta_model = skl.linear_model.LogisticRegression(max_iter=1000)
     meta_model.fit(oof_matrix, y)
 
     return trained_models, meta_model
