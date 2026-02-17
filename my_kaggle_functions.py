@@ -422,6 +422,8 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
             plot_features_eda(df, [col_name], target, label=None)
         df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
         fig, ax = plt.subplots(figsize=(5, 3))
+        #TODO: ensure df_sampled[features[0]], df_sampled[features[1]] are numeric 
+        # vs boolean or categorical and select alternative features for plotting if not
         sns.scatterplot(data=df_sampled, x=df_sampled[features[0]], y=df_sampled[features[1]], 
                             hue=col_name, alpha = 0.7, palette=palette, ax=ax, legend=False)
     if not df[f"{col_name}_noise"].any():
@@ -945,7 +947,7 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
     else:
         print("=" * 69)
         print(f"Best {study_model} params: {study.best_params}")
-        print("=" * 69)
+    print("=" * 69)
     return study.best_params
 
 def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
@@ -1061,7 +1063,6 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     ### add a "meta" model here if desired for stacking/blending
     return trained_models, meta_model
 
-
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     task: str = "regression", folds: int = 7,
                     TargetTransformer=None, verbose: bool = True):
@@ -1159,7 +1160,6 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     meta_model.fit(oof_matrix, y)
 
     return trained_models, meta_model
-
 
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', 
