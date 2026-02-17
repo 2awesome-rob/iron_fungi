@@ -501,7 +501,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
-                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:dusty rose', 'linestyle': "--", 'linewidth': 2})
+                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:steel', 'linestyle': "--", 'linewidth': 2})
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
@@ -518,13 +518,13 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
                           palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
-                      color=MY_PALETTE[-1], errorbar = None)
+                      color='xkcd:steel', errorbar = None)
 
         if len(df[target].unique()) > 5:
             for i, val in enumerate(order):
                 subset = df[df[feature] == val][target].dropna()
                 q25, q75 = subset.quantile([0.25, 0.75])
-                ax.vlines(x=i, ymin=q25, ymax=q75, color=MY_PALETTE[-1], linewidth=2,  zorder = 3)
+                ax.vlines(x=i, ymin=q25, ymax=q75, color='xkcd:steel', linewidth=2,  zorder = 3)
         
         ax.set_title(f'{target} vs {feature}')
         if len(order) > 8: 
@@ -677,7 +677,11 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     """
     if task == "regression": base_model = skl.linear_model.Ridge()
     else: base_model = skl.naive_bayes.GaussianNB()
-    numeric_features = [f for f in X_t.columns.tolist() if X_t[f].dtype != "object" and X_t[f].dtype != "string"]
+    numeric_features = [f for f in X_t.columns.tolist() if 
+                        X_t[f].dtype != "object" and 
+                        X_t[f].dtype != "string" and
+                        X_t[f].dtype != "category"]
+    
     base_model.fit(X_t[numeric_features], y_t)
     
     if task == "classification_probability":
@@ -1134,7 +1138,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     if meta_model is None:
         y_test /= len(models.keys())
     elif task == "classification_probability":
-        y_test = meta_model.predict_proba(y_oof_matrix)
+        y_test = meta_model.predict_proba(y_oof_matrix)[:, 1]
     else:
         y_test = meta_model.predict(y_oof_matrix)
     
