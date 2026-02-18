@@ -197,7 +197,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
         - adds "label" reversing the order of the target values (for better visualization)
     if target is numeric with many unique values (>=8)
         - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
-        - adds "cut_label" using pd.cut to create equal-width bins of the target
+        - adds "label" using pd.cut to create equal-width bins of the target
     returns:
     - df with new label columns added
     """
@@ -210,9 +210,9 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
         targets.append("label")
     else:
         df["qcut_label"] = cuts  - pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df["cut_label"] = cuts  - pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df[["qcut_label", "cut_label"]] = df[["qcut_label", "cut_label"]].fillna(-1).astype('int16')
-        targets.extend(["qcut_label", "cut_label"])
+        df["label"] = cuts  - pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16')
+        targets.extend(["qcut_label", "label"])
     return df, targets
 
 ###Data cleaning and feature engineering functions
@@ -647,19 +647,34 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     returns: metric score
     for rmse use 'rmse' or 'regression'
     for accuracy use 'accuracy' or 'classification'
-    for roc_auc use 'roc_auc' or 'classification_probability'
+    for roc_auc use 'roc_auc' or 'class_probability_roc_auc'
     -----------
     requires: scikit learn
     """
-    if metric == 'rmse' or metric == 'regression':
+    if metric in ['rmse', 'regression', 'regression_rmse']:
         return skl.metrics.root_mean_squared_error(actual, predicted)
-    elif metric == 'accuracy' or metric == 'classification':
+    elif metric in ['mae', 'regression_mae']:
+        return skl.metrics.mean_absolute_error(actual, predicted)
+    elif metric in ['r2', 'regression_r2']:
+        return skl.metrics.r2_score(actual, predicted)
+    elif metric in ['mape', 'regression_mape']:
+        return skl.metrics.mean_absolute_percentage_error(actual, predicted)
+    elif metric in ['rmse_log', 'rmsle', 'regression_log_rmse']:
+        return skl.metrics.root_mean_squared_log_error(actual, predicted)
+    elif metric in ['accuracy', 'classification', 'classification_accuracy']:
         return skl.metrics.accuracy_score(actual, predicted)
-    elif metric == 'roc_auc' or metric == 'classification_probability':
+    elif metric in ['f1', 'classification_f1']:
+        return skl.metrics.f1_score(actual, predicted)
+    elif metric in ['precision', 'classification_precision']:
+        return skl.metrics.precision_score(actual, predicted)
+    elif metric in ['roc_auc', 'class_probability', 'class_probability_roc_auc', 'classification_roc_auc']:
         return skl.metrics.roc_auc_score(actual, predicted)
+    elif metric in ['log_loss', 'class_probability_log_loss', 'classification_log_loss']:
+        return skl.metrics.log_loss(actual, predicted)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
-                         Supported metrics: 'rmse', 'accuracy' or 'roc_auc'""")
+                         Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
+                         Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss'""")
 
 def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', TargetTransformer=None)-> None:
     """
@@ -667,15 +682,15 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     -----------
     fits a base model to the training data (X_t, y_t) to provide a reference point for evaluating the trained model predictions
     scores the base model predictions and trained model predictions (y_p) against validation data (y_v) 
-    based on the task (regression, classification, or classification_probability)
+    based on the task (regression, classification, or class_probability)
     plots:
     for regression: actual vs predicted scatterplots for trained model and ridge regression, distribution of predictions vs actuals, and residual distribution
     for classification: confusion matrices for trained model and gaussian naive bayes, distribution of predicted probabilities
-    for classification_probability: ROC curve comparing trained model and gaussian naive bayes, distribution of predicted probabilities, and confusion matrix for predicted probabilities
+    for class_probability: ROC curve comparing trained model and gaussian naive bayes, distribution of predicted probabilities, and confusion matrix for predicted probabilities
     -----------
     requires: pandas, scikit learn, matplotlib, numpy
     """
-    if task == "regression": base_model = skl.linear_model.Ridge()
+    if task.startswith("regression"): base_model = skl.linear_model.Ridge()
     else: base_model = skl.naive_bayes.GaussianNB()
     numeric_features = [f for f in X_t.columns.tolist() if 
                         X_t[f].dtype != "object" and 
@@ -684,7 +699,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     
     base_model.fit(X_t[numeric_features], y_t)
     
-    if task == "classification_probability":
+    if task.startswith("class_probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
@@ -729,19 +744,19 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     fig = plt.figure(figsize=(9, 6))
     gs = mpl.gridspec.GridSpec(2, 3, figure=fig)
 
-    if task == "regression":
+    if task.startswith("regression"):
         plot_regression_resid(fig.add_subplot(gs[:, :2]))
         plot_distribution(fig.add_subplot(gs[0, 2]))
         plot_residuals(fig.add_subplot(gs[1, 2]))
             
-    elif task == "classification":
+    elif task.startswith("classification"):
         plot_classification_cm(fig.add_subplot(gs[:, :2]))
         plot_distribution(fig.add_subplot(gs[0, 2]))
         plot_classification_cm(fig.add_subplot(gs[1, 2]), 
                                predictions = y_base,
                                title = "GaussianNB")
     
-    elif task == "classification_probability":
+    elif task.startswith("class_probability"):
         plot_classification_roc(fig.add_subplot(gs[:, :2]))
         plot_distribution(fig.add_subplot(gs[0, 2]))
         plot_classification_cm(fig.add_subplot(gs[1, 2]), predictions=np.round(y_p))
@@ -758,7 +773,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     trains a model and returns trained model & score
     -----------
     model: a scikit learn compatible model with fit and predict methods
-    task: "regression", "classification", or "classification_probability" to determine prediction and scoring method
+    task: "regression", "classification", or "class_probability" to determine prediction and scoring method
     returns:
     - trained model
     - score based on task
@@ -766,8 +781,8 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     requires: pandas, scikit learn, numpy, matplotlib
     """
     model.fit(X_train, y_train)
-    if task == "regression" or task == "classification": y_predict = model.predict(X_val)
-    elif task =="classification_probability": y_predict = model.predict_proba(X_val)[:, 1]
+    if task.startswith("regression") or task.startswith("classification"): y_predict = model.predict(X_val)
+    elif task.startswith("class_probability"): y_predict = model.predict_proba(X_val)[:, 1]
     else: 
         print(f"Unknown task {task}")
         return model, None
@@ -793,11 +808,8 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task =
     -----------
     requires: pandas, lightgbm, scikit learn
     """
-    if task == "regression": model = lgb.LGBMRegressor(verbose=-1)
+    if task.startswith("regression"): model = lgb.LGBMRegressor(verbose=-1)
     else: model = lgb.LGBMClassifier(verbose=-1)
-    if task not in ["regression", "classification", "classification_probability"]:
-        print(f"!!!  Task not recognized   !!!")
-        return None
     ModelFeatureImportance, _ = train_and_score_model(X_train, X_val, y_train, y_val,
                                                       model=model,
                                                       verbose=False, task=task)
@@ -1043,7 +1055,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     for i, (k, model) in enumerate(models.items()):
         print(f"Training Model: {k}")
 
-        if task == "regression":
+        if task.startswith("regression"):
             cv = skl.model_selection.KFold(
                 n_splits=folds, shuffle=True, random_state=69 + i
             )
@@ -1064,7 +1076,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             except Exception:
                 model.fit(X_t, y_t)
 
-            if task == "classification_probability":
+            if task.startswith("class_probability"):
                 y_v_pred = model.predict_proba(X_v)[:, 1]
             else:
                 y_v_pred = model.predict(X_v)
@@ -1092,11 +1104,11 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                 task=task, TargetTransformer=TargetTransformer)
 
     # ---- Stacking meta-model on OOF predictions ----
-    if task == "regression":
+    if task.startswith("regression"):
         meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
         #meta_model = skl.linear_model.LogisticRegression(max_iter=1000)
-        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(128,64), 
+        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64), 
                                                       max_iter=1000, 
                                                       early_stopping=True)
     meta_model.fit(oof_matrix, y)
@@ -1125,7 +1137,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
         y_cv = np.zeros(y.shape[0])
         training_features = features[k]
         for model in cv_models:
-            if task == "classification_probability":
+            if task.startswith("class_probability"):
                 y_cv += model.predict_proba(X[training_features])[:, 1]
             else:
                 y_cv += model.predict(X[training_features])
@@ -1137,7 +1149,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
 
     if meta_model is None:
         y_test /= len(models.keys())
-    elif task == "classification_probability":
+    elif task.startswith("class_probability"):
         y_test = meta_model.predict_proba(y_oof_matrix)[:, 1]
     else:
         y_test = meta_model.predict(y_oof_matrix)
@@ -1173,7 +1185,7 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     y_test = np.zeros(y.shape[0])
 
     for m in models:
-        if task == "classification_probability":
+        if task.startswith("class_probability"):
              y_test += m.predict_proba(X)[:, 1]
         else:
              y_test += m.predict(X) 
