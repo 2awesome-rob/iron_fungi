@@ -501,7 +501,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
-                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:steel', 'linestyle': "--", 'linewidth': 2})
+                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "--", 'linewidth': 2})
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
@@ -518,13 +518,13 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
         sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
                           palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
-                      color='xkcd:steel', errorbar = None)
+                      color='xkcd:rust', errorbar = None)
 
         if len(df[target].unique()) > 5:
             for i, val in enumerate(order):
                 subset = df[df[feature] == val][target].dropna()
                 q25, q75 = subset.quantile([0.25, 0.75])
-                ax.vlines(x=i, ymin=q25, ymax=q75, color='xkcd:steel', linewidth=2,  zorder = 3)
+                ax.vlines(x=i, ymin=q25, ymax=q75, color='xkcd:rust', linewidth=2,  zorder = 3)
         
         ax.set_title(f'{target} vs {feature}')
         if len(order) > 8: 
@@ -659,7 +659,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.r2_score(actual, predicted)
     elif metric in ['mape', 'regression_mape']:
         return skl.metrics.mean_absolute_percentage_error(actual, predicted)
-    elif metric in ['rmse_log', 'rmsle', 'regression_log_rmse']:
+    elif metric in ['rmse_log', 'rmsle', 'regression_log_rmse', 'regression_rmsle']:
         return skl.metrics.root_mean_squared_log_error(actual, predicted)
     elif metric in ['accuracy', 'classification', 'classification_accuracy']:
         return skl.metrics.accuracy_score(actual, predicted)
@@ -799,7 +799,9 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
                               task=task, TargetTransformer=TargetTransformer) 
     return model, score
 
-def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task = "regression"):
+def get_feature_importance(X_train: pd.DataFrame, X_val: pd.DataFrame,
+                           y_train: pd.DataFrame, y_val: pd.DataFrame, 
+                           verbose: bool=True, task: str="regression"):
     """
     gets feature importance by training an LightGBM model
     -----------
@@ -831,6 +833,39 @@ def get_feature_importance(X_train, X_val, y_train, y_val, verbose =True, task =
         print(ds.tail(features_to_show))
         print("=" * 69)
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
+    return ds
+
+def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True):
+    """
+    gets feature mutual importance
+    -----------
+    returns: a Series of mutual information sorted in descending order
+    -----------
+    requires: pandas, scikit learn
+    """
+    if X.shape[0] > 10000:
+        sample_size = 10000
+        X = X.sample(n=sample_size, random_state=69)
+        y = y.loc[X.index]
+    mi_scores = skl.feature_selection.mutual_info_regression(X, y)
+    ds = pd.Series(mi_scores, name="information", index=X.columns)
+    ds.sort_values(ascending=False, inplace=True)
+    print("=" * 69)
+    print(f"  ***  Top feature is: {ds.index[0]}  *** \n")
+    ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
+    if verbose:
+        if len(ds) > 50: features_to_show = 10
+        elif len(ds) > 20: features_to_show = 5
+        else: features_to_show = 3
+        print("=" * 69)
+        print(f"  Top Features:")
+        print(ds.head(features_to_show))
+        print("=" * 69)
+        print(f"  Bottom Features:")
+        print("=" * 69)
+        print(ds.tail(features_to_show))
+        print("=" * 69)
+        print(f"Zero info features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
 def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
