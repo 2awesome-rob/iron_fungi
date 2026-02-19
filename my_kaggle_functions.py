@@ -117,17 +117,18 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
 
 def summarize_data(df: pd.DataFrame, features: list)-> None:
     """prints df summary and descriptive stats for selected features"""
+    df_data = df[df.target_mask.eq(True)][features]
     print("=" * 69)
-    print(df[features].info())
+    print(df.info())
     print("=" * 69)
-    print(df[features].head(5).T) 
+    print(df_data.head(5).T) 
     print("=" * 69)
     try:
-        print(df[features].describe(include=['float', 'int']).T)
+        print(df_data.describe(include=['float', 'int']).T)
     except: pass
     try:
-        non_numeric_cols = df[features].select_dtypes(include=['object', 'category', 'bool']).columns
-        print(df[non_numeric_cols].describe().T)
+        non_numeric_cols = df_data.select_dtypes(include=['object', 'category', 'bool']).columns
+        print(df_data[non_numeric_cols].describe().T)
     except: pass
     
 def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_sep: str=","):
@@ -273,7 +274,6 @@ def plot_null_data(df, features):
         plt.title(title)
         plt.xlabel('Percentage')
         plt.show()
-
     
     ds_train = _calculate_null(df[df.target_mask.eq(True)])
     ds_test = _calculate_null(df[df.target_mask.eq(False)])
@@ -290,9 +290,34 @@ def plot_null_data(df, features):
         print(df_display)
         _plot_null(ds_train)
 
-def get_transformed_target(df: pd.DataFrame, target: str, 
+def plot_target_transforms(df: pd.DataFrame, target: str):
+    """
+    Displays distribution of target variable with different transformations 
+    Informs target transformation feature engineering decisions 
+    -----------
+    Assumes target is numeric and has many unique values (not categorical or boolean or numeric with few unique values)
+    -----------
+    requires: numpy, pandas, seaborn, matplotlib, scikit learn
+    """
+    df_plot = df[df.target_mask.eq(True)][target].to_frame()
+    y = df_plot.values.reshape(-1,1)
+    df_plot['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(y)
+    df_plot['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(y)
+    df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(y)
+    df_plot['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(y)
+    df_plot['y_logTransform'] = np.log1p(y)
+    columns = list(df_plot.columns)
+    fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=False, figsize=(15,3))
+    for i, col in enumerate(columns):
+        plt.subplot(1, len(columns), i+1)
+        sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, multiple="stack", legend = False)
+    plt.show()
+
+
+def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
-                           TargetTransformer=skl.preprocessing.StandardScaler()
+                           TargetTransformer=skl.preprocessing.StandardScaler(), 
+                           verbose: bool=True
                            ):
     """
     scales or transforms targets in df with scikit learn scalers / transformers
@@ -305,14 +330,16 @@ def get_transformed_target(df: pd.DataFrame, target: str,
     requires: 
     pandas, scikit learn
     """
-    y = df[df.target_mask.eq(True)][target].values
-    TargetTransformer.fit(y.reshape(-1,1))
-
-    y = df[target].values
-    df[f"{target}_{name}"] = TargetTransformer.transform(y.reshape(-1,1))
-
-    targets.append(f"{target}_{name}")
-    return df, TargetTransformer, targets
+    t=target.col.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
+    y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
+    TargetTransformer.fit(y)
+    y = df[target].values.reshape(-1,1)
+    df[f"{t}_{name}"] = TargetTransformer.transform(y)
+    targets.append(f"{t}_{name}")
+    if verbose:
+        print(f"Added transformed target '{t}_{name}' to DataFrame with {len(df[df.target_mask.eq(True)][f'{t}_{name}'].unique())} unique values")
+        plot_target_eda(df, f"{t}_{name}", title=f"Distribution of Transformed Target '{t}_{name}'")
+    return df, targets, TargetTransformer
 
 def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -> pd.DataFrame:
     """
@@ -513,12 +540,13 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     -----------
     requires: seaborn, matplotlib, pandas
     """
+    df_plot = df[df.target_mask.eq(True)][target].to_frame()
     if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
-        sns.histplot(df[target], 
-                     bins = min(df[target].nunique(), 42),  # limit number of bins for large unique value counts
+        sns.histplot(df_plot[target], 
+                     bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
                      kde = True)
     else:
-        sns.countplot(data=df, x=target)
+        sns.countplot(data=df_plot, x=target)
     plt.title(title)
     plt.yticks([])
     plt.show()
