@@ -1,4 +1,5 @@
 #functions for use in kaggle tabular data projects
+from pyexpat import features
 import numpy as np
 import pandas as pd 
 
@@ -216,6 +217,49 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     return df, targets
 
 ###Data cleaning and feature engineering functions
+def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, verbose: bool=True) -> pd.DataFrame:
+    """
+    Checks for duplicate rows of selected features in df.
+    Returns:
+    - DataFrame with duplicate rows dropped from training data if drop=True.
+    Requires: pandas
+    """
+    mask = df.target_mask.eq(True)
+    train_df = df[mask]
+    test_df = df[~mask]
+
+    # Find duplicates in training data
+    duplicate_mask = train_df[features].duplicated(keep=False)
+    n_duplicates = duplicate_mask.sum()
+
+    # Find overlap between train and test
+    overlap = pd.merge(train_df[features], test_df[features], how='inner')
+    n_overlap = overlap.shape[0]
+
+    print("=" * 69)
+    print(f"There are {n_duplicates} duplicated rows in the training data frame.")
+    print(f"There are {n_overlap} observations that appear in both the train and test data frames")
+    print("=" * 69)
+
+    if verbose and n_duplicates > 0:
+        print(train_df[duplicate_mask].head(10).T)
+        print("=" * 69)
+        plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
+        print("=" * 69)
+        #TODO: add more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
+
+    if drop and n_duplicates > 0:
+        print("Dropping duplicated rows from training data frame...")
+        df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
+        # Recalculate duplicates and overlap after dropping
+        train_df = df[mask]
+        duplicate_mask = train_df[features].duplicated(keep=False)
+        overlap = pd.merge(train_df[features], test_df[features], how='inner')
+        print(f"{duplicate_mask.sum()} duplicated rows remain in training data frame.")
+        print(f"{overlap.shape[0]} observations remain in both the train and test data frames")
+        print("=" * 69)
+    return df
+
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
                            TargetTransformer=skl.preprocessing.StandardScaler()
@@ -660,6 +704,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     elif metric in ['mape', 'regression_mape']:
         return skl.metrics.mean_absolute_percentage_error(actual, predicted)
     elif metric in ['rmse_log', 'rmsle', 'regression_log_rmse', 'regression_rmsle']:
+        predicted = np.clip(predicted, 0, None)
         return skl.metrics.root_mean_squared_log_error(actual, predicted)
     elif metric in ['accuracy', 'classification', 'classification_accuracy']:
         return skl.metrics.accuracy_score(actual, predicted)
