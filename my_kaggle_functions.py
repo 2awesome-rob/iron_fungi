@@ -269,7 +269,7 @@ def plot_null_data(df, features):
     def _plot_null(ds, title="percentage of missing values in training data"):
         ds.sort_values(ascending=False, inplace = True)
         ds = ds[ds > 0]
-        ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")        ds.sort_values(ascending=True, inplace=True)
+        ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
         plt.title(title)
         plt.xlabel('Percentage')
         plt.show()
