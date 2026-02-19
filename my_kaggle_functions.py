@@ -238,7 +238,7 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
 
     print("=" * 69)
     print(f"There are {n_duplicates} duplicated rows in the training data frame.")
-    print(f"There are {n_overlap} observations that appear in both the train and test data frames")
+    print(f"There are {n_overlap} overlapping observations that appear in both the train and test data frames")
     print("=" * 69)
 
     if verbose and n_duplicates > 0:
@@ -251,7 +251,7 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
     if drop and n_duplicates > 0:
         print("Dropping duplicated rows from training data frame...")
         df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
-        # Recalculate duplicates and overlap after dropping
+        df = df.dropna(subset=features)
         train_df = df[mask]
         duplicate_mask = train_df[features].duplicated(keep=False)
         overlap = pd.merge(train_df[features], test_df[features], how='inner')
@@ -759,7 +759,8 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
                                                             scatter_kwargs={"alpha":0.8},
                                                             line_kwargs={"color":'xkcd:dusty rose'},
                                                             ax = ax)
-        ax.set_title(f"Trained Model {calculate_score(y_v, y_p, metric = task):.4f} vs Ridge {calculate_score(y_v, y_base, metric = task):.4f} RMSE")
+        metric = 'rmse' if task=="regression" else task.split("_")[1]
+        ax.set_title(f"Trained Model {calculate_score(y_v, y_p, metric = metric):.4f} vs Ridge {calculate_score(y_v, y_base, metric = metric):.4f} {metric.upper()}")
 
     def plot_classification_cm(ax, predictions=y_p, title = "Trained"):
         skl.metrics.ConfusionMatrixDisplay.from_predictions(y_v, predictions, cmap='bone_r', 
