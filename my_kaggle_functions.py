@@ -313,7 +313,6 @@ def plot_target_transforms(df: pd.DataFrame, target: str):
         sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, multiple="stack", legend = False)
     plt.show()
 
-
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
                            TargetTransformer=skl.preprocessing.StandardScaler(), 
@@ -330,7 +329,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     requires: 
     pandas, scikit learn
     """
-    t=target.col.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
+    t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
     y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
     TargetTransformer.fit(y)
     y = df[target].values.reshape(-1,1)
@@ -551,7 +550,7 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     plt.yticks([])
     plt.show()
 
-def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=None, 
+def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str=None, 
                       sample: int=1000, y_min: float=None, y_max: float=None,
                       high_label = "Good", low_label = "Bad") -> None:
     """ 
@@ -575,6 +574,7 @@ def plot_features_eda(df: pd.DataFrame, features: list, target: str, label: str=
     """
     MY_PALETTE = get_colors()
     SEED = 67
+    df = df_[df_.target_mask.eq(True)]
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
         sns.histplot(df[feature], ax=ax, bins = 50)
