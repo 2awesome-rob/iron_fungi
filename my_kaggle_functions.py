@@ -237,8 +237,8 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
     n_overlap = overlap.shape[0]
 
     print("=" * 69)
-    print(f"There are {n_duplicates} duplicated rows in the training data frame.")
-    print(f"There are {n_overlap} overlapping observations that appear in both the train and test data frames")
+    print(f"There are {n_duplicates} duplicated rows in the training data set.")
+    print(f"There are {n_overlap} overlapping observations that appear in both the train and test data sets")
     print("=" * 69)
 
     if verbose and n_duplicates > 0:
@@ -247,18 +247,48 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
         plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
         print("=" * 69)
         #TODO: add more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
-
+        #TODO: show examples of duplicated rows, highlight differences in target values for duplicated rows, and visualize feature distributions for duplicated vs non-duplicated rows to look for patterns that could explain the duplicates or target differences
+        #TODO: for duplicates in training data, compare how different the target values are for duplicated rows and if there are any patterns in the features that could explain the duplicates or target differences
     if drop and n_duplicates > 0:
-        print("Dropping duplicated rows from training data frame...")
+        print("Dropping duplicated rows from training data set...")
         df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
         df = df.dropna(subset=features)
         train_df = df[mask]
         duplicate_mask = train_df[features].duplicated(keep=False)
         overlap = pd.merge(train_df[features], test_df[features], how='inner')
-        print(f"{duplicate_mask.sum()} duplicated rows remain in training data frame.")
-        print(f"{overlap.shape[0]} observations remain in both the train and test data frames")
+        print(f"{duplicate_mask.sum()} duplicated rows remain in training data set.")
+        print(f"{overlap.shape[0]} overlapping observations remain in the train and test data sets")
         print("=" * 69)
     return df
+
+def plot_null_data(df, features):
+    def _calculate_null(df, features=features):
+        ds = (df[features].isnull().sum() / len(df)) * 100
+        return ds.round(4)
+
+    def _plot_null(ds, title="percentage of missing values in training data"):
+        ds.sort_values(ascending=False, inplace = True)
+        ds = ds[ds > 0]
+        ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")        ds.sort_values(ascending=True, inplace=True)
+        plt.title(title)
+        plt.xlabel('Percentage')
+        plt.show()
+
+    
+    ds_train = _calculate_null(df[df.target_mask.eq(True)])
+    ds_test = _calculate_null(df[df.target_mask.eq(False)])
+    if ds_train.all() == 0 and ds_test.all() == 0:
+        print("=" * 69)
+        print("No Missing Data")
+        print("=" * 69)
+    else:
+        print("=" * 69)
+        print("                    Percent Null")
+        print("=" * 69)
+        df_display = ds_train.to_frame(name = 'training data')
+        df_display['test data']  = ds_test
+        print(df_display)
+        _plot_null(ds_train)
 
 def get_transformed_target(df: pd.DataFrame, target: str, 
                            targets: list, name: str="std",
