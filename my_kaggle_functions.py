@@ -421,7 +421,7 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
         df[feature] = FeatureTransformer.fit_transform(X)
     return df    
 
-def get_feature_interactions(df: pd.DataFrame, features:list):
+def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0]) -> pd.DataFrame:
     """
     adds interaction features to df 
     ----------
@@ -435,7 +435,7 @@ def get_feature_interactions(df: pd.DataFrame, features:list):
     for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pairs"):
         df["*".join(combination)] = df[list(combination)].prod(axis=1)
     new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
-    df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer())
+    df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer(), winsorize=winsorize)
     print(f"Added {len(new_features)} inteaction features")
     return df
 
