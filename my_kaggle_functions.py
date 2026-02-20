@@ -11,6 +11,7 @@ import catboost as catb
 import torch
 
 #import math
+from scipy import stats
 import random
 import itertools
 
@@ -243,7 +244,7 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
     print("=" * 69)
 
     if verbose and n_duplicates > 0:
-        print(train_df[duplicate_mask].head(10).T)
+        print(train_df[duplicate_mask][features].head(10).T)
         print("=" * 69)
         plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
         print("=" * 69)
@@ -405,7 +406,7 @@ def split_training_data(df: pd.DataFrame, features: list, targets, validation_si
         return X_train, y_train, X_val,  y_val, X_test, y_test
     else: return X, y, X_test, y_test, X_test, y_test
 
-def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransformer):
+def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransformer, winsorize: list=[0,0]):
     """
     scales or transforms features in df with scikit learn scalers / transformers
     -----------
@@ -414,6 +415,8 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
     requires: pandas, scikit learn, tqdm
     """
     for feature in tqdm(features, desc="Transforming features", unit="features"):
+        if winsorize != [0,0]:
+            stats.mstats.winsorize(df[feature], limits=winsorize, inplace=True)
         X = df[feature].values.reshape(-1,1)
         df[feature] = FeatureTransformer.fit_transform(X)
     return df    
