@@ -120,7 +120,7 @@ def summarize_data(df: pd.DataFrame, features: list)-> None:
     """prints df summary and descriptive stats for selected features"""
     df_data = df[df.target_mask.eq(True)][features]
     print("=" * 69)
-    print(df.info())
+    print(df[features].info())
     print("=" * 69)
     print(df_data.head(5).T) 
     print("=" * 69)
@@ -472,7 +472,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
             print("Mapping features to embeddings...")
             reduced_data = mapper.transform(df[features])
     cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
-    X_features = pd.DataFrame(reduced_data, columns=cols)
+    X_features = pd.DataFrame(reduced_data, columns=cols, index=df.index)
     print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
 
     if verbose:
