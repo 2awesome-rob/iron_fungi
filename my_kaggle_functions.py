@@ -524,7 +524,7 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         except:
             plot_features_eda(df, [col_name], target, label=None)
         df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
-        reduced_data = skl.preprocessing.PCA(n_components=2).fit_transform(df_sampled[features])
+        reduced_data = skl.decomposition.PCA(n_components=2).fit_transform(df_sampled[features])
         df_sampled['pca_x'] = reduced_data[:,0]
         df_sampled['pca_y'] = reduced_data[:,1]
         fig, ax = plt.subplots(figsize=(5, 3))
@@ -758,6 +758,7 @@ def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True
     requires: pandas, scikit learn
     """ 
     X = df[df.target_mask.eq(True)][features[:10]]
+    X = (X - X.mean()) / X.std()  # standardize features before PCA
     pca = skl.decomposition.PCA()
     X_pca = pca.fit_transform(X)
     component_names = [f"PCA{i+1}" for i in range(X_pca.shape[1])]
@@ -767,7 +768,7 @@ def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True
         index=X.columns,           # and the rows are the original features
     )
     if filter_small:
-        loadings[(loadings > -0.2) & (loadings < 0.2)] = ""
+        loadings[(loadings > -0.1) & (loadings < 0.1)] = ""
     print(loadings)
 
 ### Train and evaluate
