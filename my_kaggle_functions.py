@@ -524,11 +524,17 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         except:
             plot_features_eda(df, [col_name], target, label=None)
         df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
+        reduced_data = skl.preprocessing.PCA(n_components=2).fit_transform(df_sampled[features])
+        df_sampled['pca_x'] = reduced_data[:,0]
+        df_sampled['pca_y'] = reduced_data[:,1]
         fig, ax = plt.subplots(figsize=(5, 3))
-        #TODO: ensure df_sampled[features[0]], df_sampled[features[1]] are numeric 
-        # vs boolean or categorical and select alternative features for plotting if not
-        sns.scatterplot(data=df_sampled, x=df_sampled[features[0]], y=df_sampled[features[1]], 
+        sns.scatterplot(data=df_sampled, x=df_sampled['pca_x'], y=df_sampled['pca_y'], 
                             hue=col_name, alpha = 0.7, palette=palette, ax=ax, legend=False)
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
+        plt.show()
     if not df[f"{col_name}_noise"].any():
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
@@ -742,6 +748,27 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
     g.map_lower(sns.kdeplot, levels=4, color="xkcd:slate")
     g.figure.suptitle(title, x = 0.98, ha = 'right', y=1.01)
     plt.show()
+
+def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True) -> None:
+    """
+    prints PCA loadings for selected features in df
+    -----------
+    useful for understanding relationships in the data and informing feature engineering decisions
+    -----------
+    requires: pandas, scikit learn
+    """ 
+    X = df[df.target_mask.eq(True)][features[:10]]
+    pca = skl.decomposition.PCA()
+    X_pca = pca.fit_transform(X)
+    component_names = [f"PCA{i+1}" for i in range(X_pca.shape[1])]
+    loadings = pd.DataFrame(
+        pca.components_.T,         # transpose the matrix of loadings
+        columns=component_names,   # so the columns are the principal components
+        index=X.columns,           # and the rows are the original features
+    )
+    if filter_small:
+        loadings[(loadings > -0.2) & (loadings < 0.2)] = ""
+    print(loadings)
 
 ### Train and evaluate
 def calculate_score(actual, predicted, metric='rmse')-> float:
