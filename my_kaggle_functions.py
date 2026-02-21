@@ -219,7 +219,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     return df, targets
 
 ###Data cleaning and feature engineering functions
-def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, verbose: bool=True) -> pd.DataFrame:
+def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, reset_index: bool=False, verbose: bool=True) -> pd.DataFrame:
     """
     Checks for duplicate rows of selected features in df.
     Returns:
@@ -255,6 +255,8 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
         print("Dropping duplicated rows from training data set...")
         df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
         df = df.dropna(subset=features)
+        #TODO: cosider option to reset index after dropping duplicates from training data
+        if reset_index: df = df.reset_index(drop=True)
         train_df = df[mask]
         duplicate_mask = train_df[features].duplicated(keep=False)
         overlap = pd.merge(train_df[features], test_df[features], how='inner')
@@ -291,27 +293,27 @@ def plot_null_data(df, features):
         print(df_display)
         _plot_null(ds_train)
 
-def plot_target_transforms(df: pd.DataFrame, target: str):
+def plot_feature_transforms(df: pd.DataFrame, feature: str)-> None:
     """
-    Displays distribution of target variable with different transformations 
-    Informs target transformation feature engineering decisions 
+    Plots histogram distribution of feature variable with different transformations 
+    Informs feature transformation feature engineering decisions 
     -----------
-    Assumes target is numeric and has many unique values (not categorical or boolean or numeric with few unique values)
+    Assumes feature is numeric and has many unique values (not categorical or boolean or numeric with few unique values)
     -----------
-    requires: numpy, pandas, seaborn, matplotlib, scikit learn
+    requires: pandas, numpy, seaborn, matplotlib, scikit learn
     """
-    df_plot = df[df.target_mask.eq(True)][target].to_frame()
-    y = df_plot.values.reshape(-1,1)
-    df_plot['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(y)
-    df_plot['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(y)
-    df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(y)
-    df_plot['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(y)
-    df_plot['y_logTransform'] = np.log1p(y)
+    df_plot = df[df.target_mask.eq(True)][feature].to_frame()
+    X = df_plot[feature].values.reshape(-1,1)
+    df_plot['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
+    df_plot['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
+    df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
+    df_plot['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
+    df_plot['y_logTransform'] = np.log1p(X)
     columns = list(df_plot.columns)
-    fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=False, figsize=(15,3))
+    fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
     for i, col in enumerate(columns):
         plt.subplot(1, len(columns), i+1)
-        sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, multiple="stack", legend = False)
+        sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, legend = False)
     plt.show()
 
 def get_target_transformer(df: pd.DataFrame, target: str, 
