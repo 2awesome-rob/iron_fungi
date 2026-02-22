@@ -1,7 +1,9 @@
+### Import common libraries and toolkits 
 #functions for use in kaggle tabular data projects
-from pyexpat import features
+#from pyexpat import features
 import numpy as np
 import pandas as pd 
+#import re
 
 import sklearn as skl
 import lightgbm as lgb
@@ -12,6 +14,8 @@ import torch
 
 #import math
 from scipy import stats
+#import statsmodels.api as sm
+#import statsmodels.formula.api as smf
 import random
 import itertools
 
@@ -23,6 +27,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly as go
+#import plotly.express as px
+#from statsmodels import graphics
 
 from multiprocessing import cpu_count
 
@@ -773,7 +779,6 @@ def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True
         loadings[(loadings > -0.1) & (loadings < 0.1)] = ""
     print(loadings)
 
-### Train and evaluate
 def calculate_score(actual, predicted, metric='rmse')-> float:
     """ 
     calculates score based on metric or task
@@ -839,8 +844,11 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
-        if TargetTransformer != None:
-            y_base = TargetTransformer.inverse_transform(y_base).reshape(-1, 1)
+    if TargetTransformer != None:
+        y_base = TargetTransformer.inverse_transform(y_base).reshape(-1, 1)
+        y_t = TargetTransformer.inverse_transform(y_t.values.reshape(-1, 1))
+        y_v = TargetTransformer.inverse_transform(y_v.values.reshape(-1, 1))
+        y_p = TargetTransformer.inverse_transform(y_p.reshape(-1, 1)).reshape(-1, 1)    
     
     def plot_regression_resid(ax):
         skl.metrics.PredictionErrorDisplay.from_predictions(y_v[:1000], y_base[:1000], kind = 'actual_vs_predicted',
@@ -901,6 +909,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     plt.tight_layout()
     plt.show()
 
+### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
                           y_train: pd.Series, y_val:pd.Series,
                           model, task: str="regression", 
