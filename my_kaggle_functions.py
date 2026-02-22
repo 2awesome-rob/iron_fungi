@@ -1334,7 +1334,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', 
                       TargetTransformer=None, meta_model=None,
-                      path: str="", verbose: bool=True)-> np.ndarray:
+                      path: str="", verbose: bool=True)-> pd.DataFrame:
     """
     makes predictions with cross validated models and returns predictions
     -----------
@@ -1345,6 +1345,17 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
     """
+    def _plot_target(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
+        if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
+            sns.histplot(df_plot[target], 
+                         bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
+                         kde = True)
+        else:
+            sns.countplot(data=df_plot, x=target)
+        plt.title(title)
+        plt.yticks([])
+        plt.show()
+
     if meta_model is None:
         y_test = np.zeros(y.shape[0])
     else:
@@ -1380,12 +1391,12 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
 
     if verbose:
-        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
+        _plot_target(SUBMISSION, target, title = f"distribution of {target} predictions")
 
     print("=" * 6, 'save success', "=" * 6, "\n")
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
 
-    return y_pred
+    return SUBMISSION
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
