@@ -845,16 +845,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
     if TargetTransformer != None:
-        try: 
-            y_t = y_t.values.reshape(-1, 1)
-        except: pass
-        try: 
-            y_v = y_v.values.reshape(-1, 1)
-        except: pass
-        y_t = TargetTransformer.inverse_transform(y_t.reshape(-1, 1))
-        y_v = TargetTransformer.inverse_transform(y_v.reshape(-1, 1))
         y_base = TargetTransformer.inverse_transform(y_base).reshape(-1, 1)
-        y_p = TargetTransformer.inverse_transform(y_p.reshape(-1, 1)).reshape(-1, 1)    
     
     def plot_regression_resid(ax):
         skl.metrics.PredictionErrorDisplay.from_predictions(y_v[:1000], y_base[:1000], kind = 'actual_vs_predicted',
@@ -1186,7 +1177,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
                               n_features: int=3, task: str='regression', direction: str='minimize',
                               n_trials: int=22, timeout: int=1200,
                               CORES: int=4, DEVICE: str='cpu', 
-                              hyper_params: dict=None, verbose: bool=True)-> (dict, dict):
+                              hyper_params: dict=None, verbose: bool=True):
     """
     enables training multiple models with different feature subsets and hyperparameters
     instantiates each models with hyperparameters
@@ -1240,6 +1231,8 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     returns a dictionary of trained models and a meta stacking model
     prints OOF validation score for each model
     task determines the prediction and scoring method used for validation
+    -
+    note: if TargetTransformer is used, meta model output will require inverse transform
     -----------
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
@@ -1309,7 +1302,16 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             oof_eval = TargetTransformer.inverse_transform(
                 np.array(oof_pred).reshape(-1, 1)
             )
-
+            if verbose:
+                y_t = TargetTransformer.inverse_transform(
+                    np.array(y_t).reshape(-1, 1)
+                )
+                y_v = TargetTransformer.inverse_transform(
+                    np.array(y_v).reshape(-1, 1)
+                )
+                y_v_pred = TargetTransformer.inverse_transform(
+                    np.array(y_v_pred).reshape(-1, 1)
+                )
         score = calculate_score(y, oof_eval, metric=task)
         print(f"Score:  {score:.4f}\n")
         print(f"***  model {k} score:  {score:.4f}  ***")
@@ -1345,13 +1347,13 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
     """
-    def _plot_target(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
+    def _plot_target(df: pd.DataFrame, target: str, title: str='predicted target distribution', hist: int=20) -> None:
         if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
-            sns.histplot(df_plot[target], 
-                         bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
+            sns.histplot(df[target], 
+                         bins = min(df[target].nunique(), 42),  # limit number of bins for large unique value counts
                          kde = True)
         else:
-            sns.countplot(data=df_plot, x=target)
+            sns.countplot(data=df, x=target)
         plt.title(title)
         plt.yticks([])
         plt.show()
