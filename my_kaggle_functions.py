@@ -845,9 +845,15 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
     if TargetTransformer != None:
+        try: 
+            y_t = y_t.values.reshape(-1, 1)
+        except: pass
+        try: 
+            y_v = y_v.values.reshape(-1, 1)
+        except: pass
+        y_t = TargetTransformer.inverse_transform(y_t.reshape(-1, 1))
+        y_v = TargetTransformer.inverse_transform(y_v.reshape(-1, 1))
         y_base = TargetTransformer.inverse_transform(y_base).reshape(-1, 1)
-        y_t = TargetTransformer.inverse_transform(y_t.values.reshape(-1, 1))
-        y_v = TargetTransformer.inverse_transform(y_v.values.reshape(-1, 1))
         y_p = TargetTransformer.inverse_transform(y_p.reshape(-1, 1)).reshape(-1, 1)    
     
     def plot_regression_resid(ax):
