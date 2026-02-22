@@ -1005,8 +1005,8 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True
         print(f"Zero info features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
-def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
-                                     metric: str='regression', direction: str='minimize',
+def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
+                                     metric: str='classification', direction: str='maximize',
                                      n_trials: int=20, timeout: int=1200,
                                      CORES: int=4, DEVICE: str='cpu', verbose: bool=True)-> dict:
     '''
@@ -1035,10 +1035,17 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
                 'num_leaves':trial.suggest_int('num_leaves', 20, 96, step=4),             # Default=31
                 'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069),       # Default=0.0
                 'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069),      # Default=0.0
-                'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
-                'verbose': trial.suggest_categorical('verbose', [-1]),
             }
-            model = lgb.LGBMClassifier(**study_params, random_state=SEED)
+            study_params['n_jobs']=CORES
+            study_params['verbose'] = -1
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                study_params['objective'] = 'binary'
+                study_params['metric'] = 'auc'
+                model = lgb.LGBMClassifier(**study_params, random_state=SEED)
+            else:
+                study_params['objective'] = 'regression'
+                study_params['metric'] = 'rmse'
+                model = lgb.LGBMRegressor(**study_params, random_state=SEED)
 
         elif 'xgb' in study_model:
             study_params = {
@@ -1049,24 +1056,29 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
                 'reg_alpha':  trial.suggest_loguniform('reg_alpha', 0.00069, .069),
                 'reg_lambda': trial.suggest_loguniform('reg_lambda', 0.00069, .069),
                 'gamma': trial.suggest_float('gamma', 0.0042, 0.042),
-                'device': trial.suggest_categorical('device', [DEVICE]),
-                'verbosity': trial.suggest_categorical('verbosity', [0]),
-                'enable_categorical': trial.suggest_categorical('enable_categorical', [True]),
             }
-            model = xgb.XGBClassifier(**study_params, random_state=SEED)
+            study_params['device']=DEVICE
+            study_params['verbosity'] = 0
+            study_params['enable_categorical'] = True
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                model = xgb.XGBClassifier(**study_params, random_state=SEED)
+            else:
+                model = xgb.XGBRegressor(**study_params, random_state=SEED)
 
         elif 'catb' in study_model:
-            task_type='GPU' if DEVICE == "cuda" else 'CPU'
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 96, 320, step=16),  
                 'learning_rate': trial.suggest_loguniform('learning_rate', 0.0042, 0.42),
                 'l2_leaf_reg': trial.suggest_loguniform('l2_leaf_reg', 0.0001, 0.1),
                 'model_size_reg': trial.suggest_loguniform('model_size_reg', 0.00042, 0.42),
-                'task_type': trial.suggest_categorical('task_type', [task_type]),
-                'cat_features': trial.suggest_categorical('cat_features', [cat_features]),
-                'verbose': trial.suggest_categorical('verbose', [0]),
-            }
-            model = catb.CatBoostClassifier(**study_params, random_seed=SEED)
+                'border_count': trial.suggest_int('border_count', 24, 128, step=4)}
+            study_params['task_type']='GPU' if DEVICE == "cuda" else 'CPU'
+            study_params['cat_features'] = cat_features
+            study_params['verbose'] = 0
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                model = catb.CatBoostClassifier(**study_params, random_state=SEED)
+            else:
+                model = catb.CatBoostRegressor(**study_params, random_state=SEED)
         
         elif 'hgb' in study_model or 'hist' in study_model:
             study_params = {
@@ -1075,29 +1087,46 @@ def study_classifier_hyperparameters(df: pd.DataFrame, features: list, target: s
                 'max_leaf_nodes': trial.suggest_int('max_leaf_nodes', 20, 128, step=4),              # Default=31
                 'min_samples_leaf': trial.suggest_int('min_samples_leaf', 16, 36),                   # Default=20
                 'l2_regularization': trial.suggest_loguniform('l2_regularization', 0.000001, 0.01),  # Default=0.0
-                'early_stopping': trial.suggest_categorical('early_stopping', [True]),               # Default='auto'
             }
-            model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
+            study_params['early_stopping'] = True
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
+            else:
+                model = skl.ensemble.HistGradientBoostingRegressor(**study_params, random_state=SEED)
+                
         
         elif 'rf' in study_model or 'forest' in study_model or 'random' in study_model:
             study_params = {
                 'n_estimators': trial.suggest_int('n_estimators', 67, 167),                           # Default=100
                 'criterion': trial.suggest_categorical('criterion', ["gini", "entropy", "log_loss"]), # Default='squared_error'
-                'n_jobs': trial.suggest_categorical('n_jobs', [CORES]),
-                
+                'max_depth': trial.suggest_int('max_depth', 4, 16, step=2),                            # Default=None
+                'min_samples_split': trial.suggest_int('min_samples_split', 2, 10),                    # Default=2
             }
             # need work to incorporate cuml
 #            if DEVICE == "cuda": model = cuml.ensemble.RandomForestClassifier(**study_params, output_type="numpy")
 #            else: 
-            model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
+            study_params['n_jobs'] = CORES
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
+            else:
+                model = skl.ensemble.RandomForestRegressor(**study_params, random_state=SEED)
 
-        elif 'lr' in study_model or 'log' in study_model:
-            study_params = {
-                'C': trial.suggest_loguniform('C', 0.067, 6.7),                          # Default=1 
-                'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),             # Default=100
-                'solver': trial.suggest_categorical('solver', ["lbfgs", "sag", "saga"]), # Default='lbfgs'
-            }
-            model = skl.linear_model.LogisticRegression(random_state=SEED)
+        elif 'lr' in study_model or 'log' in study_model or 'linear' in study_model:
+            if metric.startswith("class_probability") or metric.startswith("classification"): 
+                study_params = {
+                    'C': trial.suggest_loguniform('C', 0.067, 6.7),                          # Default=1 
+                    'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),             # Default=100
+                    'solver': trial.suggest_categorical('solver', ["lbfgs", "sag", "saga"]), # Default='lbfgs'
+                }
+                study_params['n_jobs'] = CORES
+                model = skl.linear_model.LogisticRegression(random_state=SEED)
+            else:
+                study_params = {
+                    'fit_intercept': trial.suggest_categorical('fit_intercept', [True, False]),
+                    'normalize': trial.suggest_categorical('normalize', [True, False]),
+                }
+                study_params['n_jobs'] = CORES
+                model = skl.linear_model.LinearRegression(**study_params)
         else:
             raise ValueError("Unrecognized model type")
 
@@ -1165,7 +1194,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     training_features = {}
 
     for i, (k, model_cls) in enumerate(base_models.items()):
-        if n_features <= 1:
+        if n_features <= 1 or n_features >= len(features) or n_features is None:
             feats = features
         else:
             feats = _every_nth(features, n_features, start = i//n_features)
@@ -1173,7 +1202,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
         if hyper_params is not None and k in hyper_params:
             params[k] = hyper_params[k]
         else:
-            params[k] = study_classifier_hyperparameters(
+            params[k] = study_model_hyperparameters(
                 df, feats, target, k,
                 metric=task, direction=direction,
                 n_trials=n_trials, timeout=timeout,
