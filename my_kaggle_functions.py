@@ -547,6 +547,35 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
 
+def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
+                 remove: bool=False, verbose: bool=False) -> pd.DataFrame:
+    """
+    identifies outliers in a specified feature of a DataFrame
+    -----------
+    returns: DataFrame with outlier rows
+    optionally removes outliers from the original DataFrame if remove=True
+    -----------
+    requires: pandas, numpy
+    """
+    df_train = df[df.target_mask.eq(True)]
+    m = df_train[feature].mean()
+    s = df_train[feature].std()
+    pop = df_train.shape[0]
+    print("=" * 69)
+    print(f"{pop} samples with mean: {m:.4f} std: {s:.4f}")
+    for i in range(1, deviations+1):
+        df_outlier = df_train[(df_train[feature] > i*(m+s)) | (df_train[feature] < i*(m-s))]
+        print(f"  - {pop - df_outlier.shape[0]} ({100*(1-df_outlier.shape[0]/pop):.2f}%) samples within {i} standard deviation ")
+    print("=" * 69)
+    print(f"{df_outlier.shape[0]} outliers identified beyond {deviations} standard deviations")
+    if verbose:
+        print(df_outlier.head().T)
+    if remove:
+        df = df.drop(df_outlier.index)
+        print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
+        return df
+    return df_outlier
+
 ###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
     """
@@ -817,7 +846,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
                          Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss'""")
 
-def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', TargetTransformer=None)-> None:
+def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> None:
     """
     plots training results with reference model for comparison
     -----------
@@ -844,8 +873,6 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', Targe
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
-    if TargetTransformer != None:
-        y_base = TargetTransformer.inverse_transform(y_base).reshape(-1, 1)
     
     def plot_regression_resid(ax):
         skl.metrics.PredictionErrorDisplay.from_predictions(y_v[:1000], y_base[:1000], kind = 'actual_vs_predicted',
@@ -939,7 +966,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     print(f"***  model score:  {score:.4f}  ***")
     if verbose == True: 
         plot_training_results(X_train, X_val, y_train, y_v, y_p,
-                              task=task, TargetTransformer=TargetTransformer) 
+                              task=task) 
     return model, score
 
 def get_feature_importance(X_train: pd.DataFrame, X_val: pd.DataFrame,
@@ -1319,7 +1346,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         if verbose:
             # note: plotting last fold's X_t, X_v, y_t, y_v, and corresponding preds
             plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
-                task=task, TargetTransformer=TargetTransformer)
+                task=task)
 
     # ---- Stacking meta-model on OOF predictions ----
     if task.startswith("regression"):
