@@ -1290,6 +1290,10 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     n_models = len(model_names)
 
     oof_matrix = np.zeros((y.shape[0], n_models))
+    if TargetTransformer is None:
+        y_all = np.array(y).reshape(-1, 1)
+    else:
+        y_all = TargetTransformer.inverse_transform(np.array(y).reshape(-1, 1))
 
     for i, (k, model) in enumerate(models.items()):
         print(f"Training Model: {k}")
@@ -1328,14 +1332,10 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
         if TargetTransformer is None:
             oof_eval = np.array(oof_pred).reshape(-1, 1)
-            y = np.array(y).reshape(-1, 1)
         else:
             oof_eval = TargetTransformer.inverse_transform(
                 np.array(oof_pred).reshape(-1, 1)
             )
-            # note that y is inverse transformed here prior to meta model training, 
-            # so meta model will output inverse transformed predictions
-            y = TargetTransformer.inverse_transform(np.array(y).reshape(-1, 1))
             if verbose:
                 y_t = TargetTransformer.inverse_transform(
                     np.array(y_t).reshape(-1, 1)
@@ -1346,7 +1346,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                 y_v_pred = TargetTransformer.inverse_transform(
                     np.array(y_v_pred).reshape(-1, 1)
                 )
-        score = calculate_score(y, oof_eval, metric=task)
+        score = calculate_score(y_all, oof_eval, metric=task)
         print(f"Score:  {score:.4f}\n")
         print(f"***  model {k} score:  {score:.4f}  ***")
 
@@ -1362,7 +1362,12 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64), 
                                                       max_iter=1000, 
                                                       early_stopping=True)
-    meta_model.fit(oof_matrix, y)
+    # note: when TargetTransformer is used, meta model is trained on inverse transformed target values. 
+    # Meta model output will NOT REQUIRE inverse transform
+    # TODO - consider training meta model on original target values instead of inverse transformed values,
+    # this requires changing y_all to y (original values) below AND 
+    # changing submit_cv_predict to iverse transform meta model outputs with TargetTransformer
+    meta_model.fit(oof_matrix, y_all)
 
     return trained_models, meta_model
 
