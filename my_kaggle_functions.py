@@ -426,10 +426,11 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
         if winsorize != [0,0]:
             stats.mstats.winsorize(df[feature], limits=winsorize, inplace=True)
         X = df[feature].values.reshape(-1,1)
-        df[feature] = FeatureTransformer.fit_transform(X)
+        if FeatureTransformer is not None:
+            df[feature] = FeatureTransformer.fit_transform(X)
     return df    
 
-def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0]) -> pd.DataFrame:
+def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0], transform: bool=True) -> pd.DataFrame:
     """
     adds interaction features to df 
     ----------
@@ -443,7 +444,8 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pairs"):
         df["*".join(combination)] = df[list(combination)].prod(axis=1)
     new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
-    df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer(), winsorize=winsorize)
+    if transform:
+        df = get_transformed_features(df, new_features, skl.preprocessing.PowerTransformer(), winsorize=winsorize)
     print(f"Added {len(new_features)} inteaction features")
     return df
 
@@ -1181,7 +1183,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     
     tic = time()
     study = optuna.create_study(direction=direction)
-    m = metric.split("_")[0]
+    m = metric.split("_")[0] if "_" in metric else metric
     study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val, metric=m),
                    n_trials=n_trials, timeout=timeout)
     toc = time()
