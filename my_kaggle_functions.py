@@ -1182,8 +1182,8 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     tic = time()
     study = optuna.create_study(direction=direction)
     m = metric.split("_")[0]
-    study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val),
-                   n_trials=n_trials, timeout=timeout, metric = m)
+    study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val, metric=m),
+                   n_trials=n_trials, timeout=timeout)
     toc = time()
     trial = study.best_trial
     if verbose == True:
