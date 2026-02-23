@@ -957,15 +957,17 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
         print(f"Unknown task {task}")
         return model, None
     if TargetTransformer != None:
+        y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
         y_v = TargetTransformer.inverse_transform(y_val.values.reshape(-1, 1))
         y_p = TargetTransformer.inverse_transform(y_predict.reshape(-1, 1))
     else:
+        y_t = np.array(y_train).reshape(-1, 1)
         y_v = np.array(y_val).reshape(-1, 1)
         y_p = np.array(y_predict).reshape(-1, 1)
     score = calculate_score(y_v, y_p, metric = task)
     print(f"***  model score:  {score:.4f}  ***")
     if verbose == True: 
-        plot_training_results(X_train, X_val, y_train, y_v, y_p,
+        plot_training_results(X_train, X_val, y_t, y_v, y_p,
                               task=task) 
     return model, score
 
@@ -1040,7 +1042,7 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True
 
 def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
                                      metric: str='classification', direction: str='maximize',
-                                     n_trials: int=20, timeout: int=1200,
+                                     n_trials: int=20, timeout: int=1200, sample_size: int=25000,
                                      CORES: int=4, DEVICE: str='cpu', verbose: bool=True)-> dict:
     '''
     studies impact of hyperparameters on study models
@@ -1173,15 +1175,15 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     print("=" * 69)
     
     X_train, y_train, X_val, y_val, _, _ = split_training_data(df, features, target, validation_size = 0.2)
-    idx = X_train.sample(n=min(25000, X_train.shape[0]), random_state=69).index
+    idx = X_train.sample(n=min(sample_size, X_train.shape[0]), random_state=69).index
     X_t = X_train.loc[idx]
     y_t = y_train.loc[idx]
     
     tic = time()
     study = optuna.create_study(direction=direction)
+    m == metric.split("_")[0]
     study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val),
-                   n_trials=n_trials,
-                   timeout=timeout)
+                   n_trials=n_trials, timeout=timeout, metric = m)
     toc = time()
     trial = study.best_trial
     if verbose == True:
@@ -1236,7 +1238,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
             params[k] = hyper_params[k]
         else:
             params[k] = study_model_hyperparameters(
-                df, feats, target, k,
+                df, feats, target, k, sample_size=25000,
                 metric=task, direction=direction,
                 n_trials=n_trials, timeout=timeout,
                 CORES=CORES, DEVICE=DEVICE, verbose=verbose
