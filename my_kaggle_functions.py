@@ -1261,7 +1261,8 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     prints OOF validation score for each model
     task determines the prediction and scoring method used for validation
     -
-    note: if TargetTransformer is used, meta model output will require inverse transform
+    note: when TargetTransformer is used, meta model is trained on inverse transformed target values.
+          Meta model output will NOT REQUIRE inverse transform
     -----------
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
@@ -1327,10 +1328,14 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
         if TargetTransformer is None:
             oof_eval = np.array(oof_pred).reshape(-1, 1)
+            y = np.array(y).reshape(-1, 1)
         else:
             oof_eval = TargetTransformer.inverse_transform(
                 np.array(oof_pred).reshape(-1, 1)
             )
+            # note that y is inverse transformed here prior to meta model training, 
+            # so meta model will output inverse transformed predictions
+            y = TargetTransformer.inverse_transform(np.array(y).reshape(-1, 1))
             if verbose:
                 y_t = TargetTransformer.inverse_transform(
                     np.array(y_t).reshape(-1, 1)
@@ -1354,7 +1359,6 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     if task.startswith("regression"):
         meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
-        #meta_model = skl.linear_model.LogisticRegression(max_iter=1000)
         meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64), 
                                                       max_iter=1000, 
                                                       early_stopping=True)
@@ -1412,10 +1416,12 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     else:
         y_test = meta_model.predict(y_oof_matrix)
     
-    if TargetTransformer == None:
-        y_pred = np.array(y_test).reshape(-1, 1)
-    else:
+    # note: when TargetTransformer is used, meta model is trained on inverse transformed target values, 
+    # so meta model output will NOT REQUIRE inverse transform 
+    if TargetTransformer is not None and meta_model is None:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+    else:
+        y_pred = np.array(y_test).reshape(-1, 1)
     
     SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
     SUBMISSION[target] = y_pred
