@@ -549,6 +549,60 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
 
+def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, threshold:float=0.1)-> pd.DataFrame:
+    """
+    identifies and removes noise from categorical features based on unique value counts and target distribution patterns
+    -----------
+    returns: df with 
+        - new de-noised categorical features added for features where noise above threshold was identified
+        - new target mean features when target is provided
+    -----------
+    requires: pandas, numpy
+    """
+    df[features] = df[features].astype('category')
+    df_train = df[df.target_mask.eq(True)]
+    df_test = df[df.target_mask.eq(False)]
+    #assume threshold is given in percent
+    noise_ceil_train = int(0.01 * threshold * df_train.shape[0])
+    noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
+
+    for feature in features:
+        train_v = df_train[feature].unique()
+        test_v = df_test[feature].unique()
+        train_noise = [f for f in train_v if f not in test_v]
+        test_noise = [f for f in test_v if f not in train_v]
+        if len(train_v) < 2:
+            print(f"{feature} is trivial, dropping {feature}")
+            df.drop(col=feature, inplace=True)
+        else:
+            noise_dict = {}
+            for v in train_v:
+                if v in test_noise or v in train_noise:
+                    noise_dict[v] = -1
+                elif df_train.groupby(feature)[target].count()[v] < noise_ceil_train:
+                    noise_dict[v] = -1
+                elif df_test.groupby(feature)[target].count()[v] < noise_ceil_test:
+                    noise_dict[v] = -1
+            if len(noise_dict.keys()) == 0:
+                print(f"No noise identified in {feature}")
+                if target is not None:
+                    tgt_mean=df_train.groupby(feature)[target].mean().to_dict()
+                    df[f"{feature}_tgt_mean"] = df[feature].replace(tgt_mean).astype('float32')
+            elif len(noise_dict.keys()) > 1:
+                df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
+                training_noise = df_train[df_train[f"{feature}_denoise"].eq(-1)].shape[0]
+                if  training_noise > 0:
+                    df[f"{feature}_denoise"] = df[feature].replace(noise_dict).astype('category')
+                    print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
+                    if target is not None:
+                        tgt_mean=df_train.groupby(f"{feature}_denoise")[target].mean().to_dict()
+                        df[f"{feature}_tgt_mean"] = df[f"{feature}_denoise"].replace(tgt_mean).astype('float32')
+                else:
+                    print(f"❌ unable to denoise {feature}")
+            else:
+                print(f"❌ unable to denoise {feature}")
+    return df  
+
 def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
                  remove: bool=False, verbose: bool=False) -> pd.DataFrame:
     """
@@ -934,6 +988,61 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
 
     plt.tight_layout()
     plt.show()
+
+def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> None:
+    """
+    checks that categorical features have consistent unique values and 
+    similar distributions between training and testing data
+    -----------
+    for each feature, checks that unique values in training and testing data are the same
+    prints any unique values that appear in one set but not the other as potential noise
+    checks that the percentage of each unique value in training and testing is within pct_diff threshold 
+    prints any that exceed the threshold as potential consistency issues
+    -----------
+    requires: pandas
+    """
+    df_train = df[df.target_mask.eq(True)]
+    df_test = df[df.target_mask.eq(False)]
+    
+    def _print_consistency(feature, feature_values, df_train=df_train, df_test=df_test, pct_diff=pct_diff):
+        dict_index = {}
+        for v in feature_values:
+            try:
+                train_pct = 100*df_train.groupby(feature)[feature].count()[v] / df_train.shape[0]
+            except:
+                train_pct = 0
+            try:
+                test_pct = 100*df_test.groupby(feature)[feature].count()[v] / df_test.shape[0]
+            except:
+                train_pct = 0
+            delta = abs(train_pct - test_pct)
+            dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
+        df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
+        if df_plot[df_plot.Difference.ge(pct_diff)].shape[0] == 0:
+            print(f"✔️ {pct_diff}% consistent check passes for {feature}")
+        else:
+            print(f"❌ {pct_diff}% consistent check FAILED for {feature}")
+            print(df_plot[df_plot.Difference.ge(pct_diff)])
+   
+    for feature in features:
+        train_v = df_train[feature].unique()
+        test_v = df_test[feature].unique()
+        train_noise = [f for f in train_v if f not in test_v]
+        test_noise = [f for f in test_v if f not in train_v]
+        if train_noise == [] and test_noise == []:
+            if len(train_v) >= 2:
+                _print_consistency(feature, train_v)
+            else:
+                print(f"{feature} is trivial, recommend dropping {feature}")
+        else:
+            print(f"❌ unique feature check FAILED for {feature}")
+            if test_noise != []:
+                print(f"*** Warning {feature} has test values that do not appear in training data! ***")
+                print(f"{feature} values: {test_noise} appear in testing, but not training data")
+            if train_noise != []:
+                print(f"{feature} values: {train_noise} appear in training, but not test data")
+            all_v = list(set(train_v) | set(test_v))
+            _print_consistency(feature, all_v)
 
 ### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
