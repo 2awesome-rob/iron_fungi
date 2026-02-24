@@ -878,7 +878,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     returns: metric score
     for rmse use 'rmse' or 'regression'
     for accuracy use 'accuracy' or 'classification'
-    for roc_auc use 'roc_auc' or 'class_probability_roc_auc'
+    for roc_auc use 'roc_auc' or 'probability_roc_auc'
     -----------
     requires: scikit learn
     """
@@ -899,9 +899,9 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.f1_score(actual, predicted)
     elif metric in ['precision', 'classification_precision']:
         return skl.metrics.precision_score(actual, predicted)
-    elif metric in ['roc_auc', 'class_probability', 'class_probability_roc_auc', 'classification_roc_auc']:
+    elif metric in ['roc_auc', 'probability', 'probability_roc_auc', 'classification_roc_auc']:
         return skl.metrics.roc_auc_score(actual, predicted)
-    elif metric in ['log_loss', 'class_probability_log_loss', 'classification_log_loss']:
+    elif metric in ['log_loss', 'probability_log_loss', 'classification_log_loss']:
         return skl.metrics.log_loss(actual, predicted)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
@@ -914,11 +914,11 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     -----------
     fits a base model to the training data (X_t, y_t) to provide a reference point for evaluating the trained model predictions
     scores the base model predictions and trained model predictions (y_p) against validation data (y_v) 
-    based on the task (regression, classification, or class_probability)
+    based on the task (regression, classification, or probability)
     plots:
     for regression: actual vs predicted scatterplots for trained model and ridge regression, distribution of predictions vs actuals, and residual distribution
     for classification: confusion matrices for trained model and gaussian naive bayes, distribution of predicted probabilities
-    for class_probability: ROC curve comparing trained model and gaussian naive bayes, distribution of predicted probabilities, and confusion matrix for predicted probabilities
+    for probability: ROC curve comparing trained model and gaussian naive bayes, distribution of predicted probabilities, and confusion matrix for predicted probabilities
     -----------
     requires: pandas, scikit learn, matplotlib, numpy
     """
@@ -931,7 +931,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     
     base_model.fit(X_t[numeric_features], y_t)
     
-    if task.startswith("class_probability"):
+    if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
@@ -987,7 +987,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
                                predictions = y_base,
                                title = "GaussianNB")
     
-    elif task.startswith("class_probability"):
+    elif task.startswith("probability"):
         plot_classification_roc(fig.add_subplot(gs[:, :2]))
         plot_distribution(fig.add_subplot(gs[0, 2]))
         plot_classification_cm(fig.add_subplot(gs[1, 2]), predictions=np.round(y_p))
@@ -1060,7 +1060,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     trains a model and returns trained model & score
     -----------
     model: a scikit learn compatible model with fit and predict methods
-    task: "regression", "classification", or "class_probability" to determine prediction and scoring method
+    task: "regression", "classification", or "probability" to determine prediction and scoring method
     returns:
     - trained model
     - score based on task
@@ -1069,7 +1069,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     """
     model.fit(X_train, y_train)
     if task.startswith("regression") or task.startswith("classification"): y_predict = model.predict(X_val)
-    elif task.startswith("class_probability"): y_predict = model.predict_proba(X_val)[:, 1]
+    elif task.startswith("probability"): y_predict = model.predict_proba(X_val)[:, 1]
     else: 
         print(f"Unknown task {task}")
         return model, None
@@ -1190,7 +1190,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
             }
             study_params['n_jobs']=CORES
             study_params['verbose'] = -1
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 study_params['objective'] = 'binary'
                 study_params['metric'] = 'auc'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
@@ -1212,7 +1212,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
             study_params['device']=DEVICE
             study_params['verbosity'] = 0
             study_params['enable_categorical'] = True
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 model = xgb.XGBClassifier(**study_params, random_state=SEED)
             else:
                 model = xgb.XGBRegressor(**study_params, random_state=SEED)
@@ -1227,7 +1227,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
             study_params['task_type']='GPU' if DEVICE == "cuda" else 'CPU'
             study_params['cat_features'] = cat_features
             study_params['verbose'] = 0
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 model = catb.CatBoostClassifier(**study_params, random_state=SEED)
             else:
                 model = catb.CatBoostRegressor(**study_params, random_state=SEED)
@@ -1241,7 +1241,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
                 'l2_regularization': trial.suggest_loguniform('l2_regularization', 0.000001, 0.01),  # Default=0.0
             }
             study_params['early_stopping'] = True
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 model = skl.ensemble.HistGradientBoostingClassifier(**study_params, random_state=SEED)
             else:
                 model = skl.ensemble.HistGradientBoostingRegressor(**study_params, random_state=SEED)
@@ -1258,13 +1258,13 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
 #            if DEVICE == "cuda": model = cuml.ensemble.RandomForestClassifier(**study_params, output_type="numpy")
 #            else: 
             study_params['n_jobs'] = CORES
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
             else:
                 model = skl.ensemble.RandomForestRegressor(**study_params, random_state=SEED)
 
         elif 'lr' in study_model or 'log' in study_model or 'linear' in study_model:
-            if metric.startswith("class_probability") or metric.startswith("classification"): 
+            if metric.startswith("probability") or metric.startswith("classification"): 
                 study_params = {
                     'C': trial.suggest_loguniform('C', 0.067, 6.7),                          # Default=1 
                     'max_iter': trial.suggest_int('max_iter', 99, 291, step=24),             # Default=100
@@ -1433,7 +1433,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             except Exception:
                 model.fit(X_t, y_t)
 
-            if task.startswith("class_probability"):
+            if task.startswith("probability"):
                 y_v_pred = model.predict_proba(X_v)[:, 1]
             else:
                 y_v_pred = model.predict(X_v)
@@ -1519,7 +1519,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
         y_cv = np.zeros(y.shape[0])
         training_features = features[k]
         for model in cv_models:
-            if task.startswith("class_probability"):
+            if task.startswith("probability"):
                 y_cv += model.predict_proba(X[training_features])[:, 1]
             else:
                 y_cv += model.predict(X[training_features])
@@ -1531,7 +1531,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
 
     if meta_model is None:
         y_test /= len(models.keys())
-    elif task.startswith("class_probability"):
+    elif task.startswith("probability"):
         y_test = meta_model.predict_proba(y_oof_matrix)[:, 1]
     else:
         y_test = meta_model.predict(y_oof_matrix)
@@ -1568,7 +1568,7 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     y_test = np.zeros(y.shape[0])
 
     for m in models:
-        if task.startswith("class_probability"):
+        if task.startswith("probability"):
              y_test += m.predict_proba(X)[:, 1]
         else:
              y_test += m.predict(X) 
