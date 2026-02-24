@@ -1284,6 +1284,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
 
         model.fit(X_train, y_train)
         y_pred = model.predict(X_val) 
+        print(f"Trial {trial.number} {metric} ")
         return  calculate_score(y_val, y_pred, metric=metric)
 
     # Main loop    
