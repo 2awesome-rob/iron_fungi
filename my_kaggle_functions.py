@@ -716,11 +716,17 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         grouped = df.groupby(feature)
         sampled_dfs = []
         for name, group in grouped:
+            if len(group) == 0:
+                continue  # Skip empty groups
             frac = min(1.0, sample / len(df))
-            sampled_dfs.append(group.sample(n=max(1, int(frac * len(group))), random_state=SEED))
-        df_sampled = pd.concat(sampled_dfs)
-        sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
-                          palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
+            n_samples = max(1, int(frac * len(group)))
+            if len(group) == 0 or n_samples == 0:
+                continue
+            sampled_dfs.append(group.sample(n=n_samples, random_state=SEED))
+        if sampled_dfs:
+            df_sampled = pd.concat(sampled_dfs)
+            sns.stripplot(data=df_sampled, x=feature, y=target, order=order, ax=ax, zorder = 1, 
+                              palette=[color_map[val] for val in order], alpha=0.5, jitter=True)
         sns.pointplot(data=df, x=feature, y=target, order=order, ax=ax, zorder = 2, 
                       color='xkcd:rust', errorbar = None)
 
