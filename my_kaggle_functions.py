@@ -903,10 +903,12 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.roc_auc_score(actual, predicted)
     elif metric in ['log_loss', 'probability_log_loss', 'classification_log_loss']:
         return skl.metrics.log_loss(actual, predicted)
+    elif metric in ['brier', 'probability_brier', 'brier_score']:
+        return skl.metrics.log_loss(actual, predicted)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
-                         Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss'""")
+                         Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss', 'brier'""")
 
 def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> None:
     """
