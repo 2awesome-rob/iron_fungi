@@ -1289,8 +1289,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
         print(f"Trial {trial.number} {metric} ")
         return  calculate_score(y_val, y_pred, metric=metric)
 
-    def _add_static_params(study.best_params, study_model, cat_features=cat_list):
-        study_params = study.best_params
+    def _add_static_params(study_params, study_model, cat_features=cat_list):
         if 'lgb' in study_model:
             study_params['n_jobs']=CORES
             study_params['verbose'] = -1
