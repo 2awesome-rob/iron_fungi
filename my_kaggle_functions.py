@@ -1289,6 +1289,25 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
         print(f"Trial {trial.number} {metric} ")
         return  calculate_score(y_val, y_pred, metric=metric)
 
+    def _add_static_params(study.best_params, study_model, cat_features=cat_list):
+        study_params = study.best_params
+        if 'lgb' in study_model:
+            study_params['n_jobs']=CORES
+            study_params['verbose'] = -1
+        elif 'xgb' in study_model:
+            study_params['device']=DEVICE
+            study_params['verbosity'] = 0
+            study_params['enable_categorical'] = True
+        elif 'catb' in study_model:
+            study_params['task_type']='GPU' if DEVICE == "cuda" else 'CPU'
+            study_params['cat_features'] = cat_features
+            study_params['verbose'] = 0            
+        elif 'hgb' in study_model:
+            study_params['early_stopping'] = True
+        elif 'rf' in study_model or 'log' in study_model or 'linear' in study_model or 'lr' in study_model:
+            study_params['n_jobs'] = CORES
+        return study_params
+
     # Main loop    
     print("=" * 69)
     print(f"Studying {study_model} hyperparameters")
@@ -1320,7 +1339,8 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
         print("=" * 69)
         print(f"Best {study_model} params: {study.best_params}")
     print("=" * 69)
-    return study.best_params
+    params = _add_static_params(study.best_params, study_model)
+    return params
 
 def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
                               n_features: int=3, task: str='regression', direction: str='minimize',
