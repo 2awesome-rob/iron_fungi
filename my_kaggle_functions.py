@@ -904,7 +904,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     elif metric in ['log_loss', 'probability_log_loss', 'classification_log_loss']:
         return skl.metrics.log_loss(actual, predicted)
     elif metric in ['brier', 'probability_brier', 'brier_score']:
-        return skl.metrics.log_loss(actual, predicted)
+        return skl.metrics.brier_score_loss(actual, predicted)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
@@ -1498,11 +1498,12 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     if task.startswith("regression"):
         meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
-        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64), 
+        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64,64), 
                                                       max_iter=1000, 
                                                       early_stopping=True)
     # note: when TargetTransformer is used, meta model is NOT trained on inverse transformed target values. 
-    # Meta model output will REQUIRE inverse transform
+    # Meta model output will still REQUIRE inverse transform
+    print("Training Meta Model")
     meta_model.fit(oof_matrix, y)
 
     return trained_models, meta_model
@@ -1510,7 +1511,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', 
                       TargetTransformer=None, meta_model=None,
-                      path: str="", verbose: bool=True)-> pd.DataFrame:
+                      path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
     """
     makes predictions with cross validated models and returns predictions
     -----------
@@ -1563,17 +1564,17 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
     
-    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
-    SUBMISSION[target] = y_pred
-    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
+    submission_df = pd.read_csv(f"{path}/{file}")
+    submission_df[target] = y_pred
+    submission_df.to_csv('/kaggle/working/submission.csv', index=False)
 
     if verbose:
-        _plot_target(SUBMISSION, target, title = f"distribution of {target} predictions")
+        _plot_target(submission_df, target, title = f"distribution of {target} predictions")
 
     print("=" * 6, 'save success', "=" * 6, "\n")
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
 
-    return SUBMISSION
+    return submission_df
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
