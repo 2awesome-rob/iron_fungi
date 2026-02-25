@@ -1022,7 +1022,7 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
             try:
                 test_pct = 100*df_test.groupby(feature)[feature].count()[v] / df_test.shape[0]
             except:
-                train_pct = 0
+                test_pct = 0
             delta = abs(train_pct - test_pct)
             dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
         df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
