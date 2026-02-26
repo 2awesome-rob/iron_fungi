@@ -271,10 +271,10 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
         print("=" * 69)
     return df
 
-def plot_null_data(df, features):
+def plot_null_data(df:pd.DataFrame, features:list, verbose:bool=True)->list:
     def _calculate_null(df, features=features):
         ds = (df[features].isnull().sum() / len(df)) * 100
-        return ds.round(4)
+        return ds
 
     def _plot_null(ds, title="percentage of missing values in training data"):
         ds.sort_values(ascending=False, inplace = True)
@@ -283,21 +283,33 @@ def plot_null_data(df, features):
         plt.title(title)
         plt.xlabel('Percentage')
         plt.show()
-    
+    def _plot_missing_heatmap(df, title="null value heatmap"):
+        sample = min(df.shape[0], 1000)
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(df.sample(sample).isnull(), cbar=False, cmap='cividis')
+        plt.title(title)
+        plt.show()
+        
     ds_train = _calculate_null(df[df.target_mask.eq(True)])
     ds_test = _calculate_null(df[df.target_mask.eq(False)])
-    if ds_train.all() == 0 and ds_test.all() == 0:
+    if (ds_train == 0).all() and (ds_test == 0).all():
         print("=" * 69)
         print("No Missing Data")
         print("=" * 69)
+        return []
     else:
         print("=" * 69)
         print("                    Percent Null")
         print("=" * 69)
         df_display = ds_train.to_frame(name = 'training data')
         df_display['test data']  = ds_test
+        df_display = df_display.loc[~(df_display == 0).all(axis=1)]
+        df_display.round(4)
         print(df_display)
-        _plot_null(ds_train)
+        if verbose:
+            _plot_null(ds_train)
+            _plot_missing_heatmap(df)
+        return df_display.index.tolist()
 
 def plot_feature_transforms(df: pd.DataFrame, feature: str)-> None:
     """
@@ -349,7 +361,8 @@ def get_target_transformer(df: pd.DataFrame, target: str,
         plot_target_eda(df, f"{t}_{name}", title=f"Distribution of Transformed Target '{t}_{name}'")
     return df, targets, TargetTransformer
 
-def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -> pd.DataFrame:
+def clean_categoricals(df: pd.DataFrame, features: list, 
+                       string_length: int=3, fillna:bool=True) -> pd.DataFrame:
     """
     edits strings in categorical feature columns to be more consistent and easier to work with
     -----------
@@ -375,6 +388,8 @@ def clean_categoricals(df: pd.DataFrame, features: list, string_length: int=3) -
             .str.replace(".", "_", regex=False)
             .str.replace(",", "_", regex=False)
         )
+        if fillna: 
+            df[col].fillna('unk', inplace=True) 
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
@@ -1031,6 +1046,7 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
         else:
             print(f"❌ {pct_diff}% consistent check FAILED for {feature}")
             print(df_plot[df_plot.Difference.ge(pct_diff)])
+        print(f"    - {df_train[feature].nunique()} unique values in {feature} training data")
    
     for feature in features:
         train_v = df_train[feature].unique()
