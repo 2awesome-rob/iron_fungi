@@ -732,6 +732,7 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
 
 
 ###EDA functions
+
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
     """
     plots simple target distribution plot
@@ -800,11 +801,20 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.set_xticks(x, labels, rotation=90)
         ax.set_xlabel("")
 
+#TODO: evaluate 2D histogram plots (alternative scatter) for EDA utility with bool or categorical targets
+#    sns.histplot(data=df, stat='percent', x = feature, y=target, legend = False, bins=20,
+#                 discrete = (c, False), log_scale=(False, False),
+#                 pthresh=0.01, pmax=.99,
+#                 color = 'DodgerBlue',
+#                 )
+
     ### scatterplot with trendline for numerical feature relationship to target (num plot 1)
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
                     scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "--", 'linewidth': 2})
+        sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
+                     dashes=False, line_kws={'color': 'xkcd:rust', 'linewidth': 3})
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
@@ -1162,7 +1172,7 @@ def plot_feature_corr(df, features, target=None):
         mask=np.tril(df[plot_features].corr()), 
         annot=True if (len(plot_features)<12) else False, 
         fmt='.2f', 
-        cmap='coolwarm',
+        cmap='cividis', #coolwarm is a good cmap
         vmin = -1, vmax = 1,
         linewidth=1, linecolor='white')
 
@@ -1172,6 +1182,23 @@ def plot_feature_corr(df, features, target=None):
     plt.xlabel("")
     plt.ylabel("")
     plt.show()
+
+def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
+    features = [f for f in df.columns if f not in targets and 
+                df[f].dtype != 'category' and df[f].dtype!='bool']
+    features_alt = [f for f in df.columns if f not in targets and 
+                (df[f].dtype == 'float' or df[f].dtype == 'int')]
+    if features == features_alt:
+        unscaled_features = [f for f in features if (df[f].mean() > 1 or df[f].mean() <-1)]
+        if unscaled_features == []:
+            print("All features scaled")
+        else:
+            print(f"Consider scaling: {unscaled_features}")
+    elif features==[]:
+        print("No numeric features in DataFrame")
+    else:
+        print(f"Object features: {[f for f in features if f not in features_alt]}")
+
 
 ### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
