@@ -1149,16 +1149,25 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
             all_v = list(set(train_v) | set(test_v))
             _print_consistency(feature, all_v)
 
-def plot_feature_corr(df, features):
+def plot_feature_corr(df, features, target=None):
     plot_features = [f for f in features if
                      (df[f].dtype == 'int' or df[f].dtype == 'float')]
-    plt.figure(figsize=(12,10))
+    if target is not None:
+        plot_features.insert(0, target)
+    plt.figure(figsize=(8,6))
     sns.heatmap(data=df[plot_features].corr(), 
-            mask=np.triu(df[plot_features].corr()), 
-            annot=True, fmt='.2f', 
-            cmap='coolwarm',
-            vmin = -1, vmax = 1,
-            linewidth=1, linecolor='white')
+        mask=np.tril(df[plot_features].corr()), 
+        annot=True if (len(plot_features)<12) else False, 
+        fmt='.2f', 
+        cmap='coolwarm',
+        vmin = -1, vmax = 1,
+        linewidth=1, linecolor='white')
+
+    plt.xticks(())
+    #TODO update yticks to only show every 5th line
+#    plt.yticks(()) 
+    plt.xlabel("")
+    plt.ylabel("")
     plt.show()
 
 ### Train and evaluate
