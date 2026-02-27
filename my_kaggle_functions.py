@@ -673,6 +673,61 @@ def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4,
         return df
     return df_outlier
 
+def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, verbose:bool=True, debug:bool=False)->pd.DataFrame:
+    """
+    decomposes a datetime feature into numeric and categorical features suitable for training
+    ------
+    requires: pandas, numpy, seaborne
+    """
+    def _cycle(df, feature, points):
+        df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * df[feature]/points)
+        df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * df[feature]/points)
+        return df
+
+    def _plot_circle(df, cyclic_features):
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        plt.xlabel(None)
+        plt.xticks(())
+        plt.ylabel(None)
+        plt.yticks(())
+        plt.show()
+        
+    MY_PALETTE = get_colors()
+    
+    if verbose:
+        fig, axs = plt.subplots(nrows=2, ncols=1, sharex = True, figsize=(8,3))
+        sns.histplot(data=df[df.target_mask.eq(True)], x=feature, color = MY_PALETTE[0], 
+                     ax=axs[0])
+        sns.histplot(data=df[df.target_mask.eq(False)], x=feature, color = MY_PALETTE[2], 
+                     ax=axs[1])
+        plt.show()
+        
+    df[f'{feature}_dummy'] = round((df[feature] - df[feature].min()).dt.days + 1, 0)
+    df[f'{feature}_year'] = df[feature].dt.year.astype('int32').astype('category')
+    df[f'{feature}_doy'] = df[feature].apply(lambda d: d.timetuple().tm_yday)
+    df = _cycle(df, f'{feature}_doy', 366)
+    df[f'{feature}_month'] = df[feature].dt.month.astype('int8')
+    df= _cycle(df, f'{feature}_month', 12)
+    df[f'{feature}_month'] = df[f'{feature}_month'].astype('category')
+    df[f'{feature}_dom'] = df[feature].dt.day.astype('int8')
+    df= _cycle(df, f'{feature}_dom', 31)
+    df[f'{feature}_dom'] = df[f'{feature}_dom'].astype('category')
+    df[f'{feature}_dow'] = 1 + df[feature].dt.dayofweek.astype('int8')
+    df= _cycle(df, f'{feature}_dow', 7)
+    df[f'{feature}_dow'] = df[f'{feature}_dow'].astype('category')
+
+    if debug==True:
+        _plot_circle(df, [f'{feature}_doy_366_sin', f'{feature}_doy_366_cos'])
+        _plot_circle(df, [f'{feature}_dow_7_sin', f'{feature}_dow_7_cos'])
+    
+    if drop:
+        df.drop(feature, inplace = True, axis = 1)
+    if verbose:
+        print(f"{feature} features: {[f for f in df.columns if feature in f]}")
+    return df
+
+
+
 ###EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
     """
