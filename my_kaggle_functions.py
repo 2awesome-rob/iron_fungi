@@ -654,8 +654,7 @@ def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4,
     """
     identifies outliers in a specified feature of a DataFrame
     -----------
-    returns: DataFrame with outlier rows
-    optionally removes outliers from the original DataFrame if remove=True
+    returns: DataFrame with outlier rows optionally removes, and DataFrame of outliers
     -----------
     requires: pandas, numpy
     """
@@ -675,8 +674,7 @@ def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4,
     if remove:
         df = df.drop(df_outlier.index)
         print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
-        return df
-    return df_outlier
+    return df, df_outlier
 
 def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, verbose:bool=True, debug:bool=False)->pd.DataFrame:
     """
@@ -1434,9 +1432,6 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     print("=" * 69)
     print(f"Studying {study_model} hyperparameters")
     print("=" * 69)
-    print(df)
-    print(features)
-    print(target)
     X_train, y_train, X_val, y_val, _, _ = split_training_data(df, features, target, validation_size = 0.2)
     idx = X_train.sample(n=min(sample_size, X_train.shape[0]), random_state=69).index
     X_t = X_train.loc[idx]
