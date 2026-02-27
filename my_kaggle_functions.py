@@ -1096,7 +1096,7 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
 
 def plot_feature_corr(df, features):
     plot_features = [f for f in features if
-                     (df[f].dtype == 'int' or df[f].dtype != 'float')]
+                     (df[f].dtype == 'int' or df[f].dtype == 'float')]
     plt.figure(figsize=(12,10))
     sns.heatmap(data=df[plot_features].corr(), 
             mask=np.triu(df[plot_features].corr()), 
