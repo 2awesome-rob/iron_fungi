@@ -376,6 +376,8 @@ def clean_categoricals(df: pd.DataFrame, features: list,
     requires: pandas
     """
     for col in df[features].select_dtypes(include=['object', 'string']).columns:
+        if fillna: 
+            df[col].fillna('unk', inplace=True) 
         df[col] = (
             df[col]
             .astype(str)
@@ -388,12 +390,11 @@ def clean_categoricals(df: pd.DataFrame, features: list,
             .str.replace(".", "_", regex=False)
             .str.replace(",", "_", regex=False)
         )
-        if fillna: 
-            df[col].fillna('unk', inplace=True) 
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
-def split_training_data(df: pd.DataFrame, features: list, targets, validation_size: None| float | pd.Index = None):
+def split_training_data(df: pd.DataFrame, features: list, targets, 
+                        drop_na: bool=False, validation_size: None| float | pd.Index = None):
     """
     splits df into training, validation, and test sets
     -----------
@@ -411,6 +412,12 @@ def split_training_data(df: pd.DataFrame, features: list, targets, validation_si
     -----------
     requires: pandas, scikit learn
     """
+    def _drop_nan(X, y):
+        nan_idx = X[X.isna().any(axis=1)].index
+        X = X.drop(nan_idx)
+        y = y.drop(nan_idx)
+        return X, y
+
     SEED = 80085
     X_test = df[df.target_mask.eq(False)][features]
     y_test = df[df.target_mask.eq(False)][targets]
@@ -418,6 +425,8 @@ def split_training_data(df: pd.DataFrame, features: list, targets, validation_si
     X = df[df.target_mask.eq(True)][features]
     y = df[df.target_mask.eq(True)][targets]
     
+    if drop_na:
+        X, y = _drop_nan(X, y)
     if validation_size is None:
         return X, y, X_test, y_test, X_test, y_test
     elif type(validation_size) is float:
@@ -617,6 +626,23 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
             else:
                 print(f"❌ unable to denoise {feature}")
     return df  
+
+def impute_using(df: pd.DataFrame, impute_informant: str, impute_features:list)-> pd.DataFrame:
+    """
+    uses a control variable to impute values into a list of features with missing data
+    rather than simply filling with overall mean, fills with mean based on quantile cuts of informant feature
+    ------- 
+    requires: scikit-learn, pandas
+    """
+    df['control'] = skl.preprocessing.QuantileTransformer(n_quantiles=1000).fit_transform(
+        df[[impute_informant]]
+    )
+    for f in impute_features:
+        ds = df.groupby('control')[f].transform(lambda g: g.fillna(g.mean()))
+        df[f] = ds
+        df[f].fillna(df[f].mean(), inplace=True)
+    df.drop('control', axis=1, inplace=True)
+    return df
 
 def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
                  remove: bool=False, verbose: bool=False) -> pd.DataFrame:
@@ -1067,6 +1093,18 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
                 print(f"{feature} values: {train_noise} appear in training, but not test data")
             all_v = list(set(train_v) | set(test_v))
             _print_consistency(feature, all_v)
+
+def plot_feature_corr(df, features):
+    plot_features = [f for f in features if
+                     (df[f].dtype == 'int' or df[f].dtype != 'float')]
+    plt.figure(figsize=(12,10))
+    sns.heatmap(data=df[plot_features].corr(), 
+            mask=np.triu(df[plot_features].corr()), 
+            annot=True, fmt='.2f', 
+            cmap='coolwarm',
+            vmin = -1, vmax = 1,
+            linewidth=1, linecolor='white')
+    plt.show()
 
 ### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
