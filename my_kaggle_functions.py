@@ -522,6 +522,10 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         sns.scatterplot(data=df_sampled, x=cols[0], y=cols[1], hue=hue, 
                         ax=ax, legend=False, palette=palette
                        ).set_title(f"{cols[1]} vs {cols[0]}")
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
         if target != None: X_features.drop(target, inplace = True, axis = 1)
         plt.show()
     return df.join(X_features)
@@ -553,10 +557,11 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         noise_pct = 100 * df[f"{col_name}_noise"].sum() / df.shape[0]
         if noise_pct > 0: print(f"Cluster feature '{col_name}' identified {noise_pct:.2f}% noise")
         palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
-        try:
-            plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
-        except:
-            plot_features_eda(df, [col_name], target, label=None)
+        if target is not None:
+            try:
+                plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
+            except:
+                plot_features_eda(df, [col_name], target, label=None)
         df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
         reduced_data = skl.decomposition.PCA(n_components=2).fit_transform(df_sampled[features])
         df_sampled['pca_x'] = reduced_data[:,0]
@@ -1429,7 +1434,9 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     print("=" * 69)
     print(f"Studying {study_model} hyperparameters")
     print("=" * 69)
-    
+    print(df)
+    print(features)
+    print(target)
     X_train, y_train, X_val, y_val, _, _ = split_training_data(df, features, target, validation_size = 0.2)
     idx = X_train.sample(n=min(sample_size, X_train.shape[0]), random_state=69).index
     X_t = X_train.loc[idx]
