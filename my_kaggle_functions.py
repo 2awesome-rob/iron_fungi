@@ -473,18 +473,16 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_feature_by_grouping_on_cat(df:pd.DataFrame, numeric_features:list, category:str)->pd.DataFrame:
+def get_feature_by_grouping_on_cat(df:pd.DataFrame, categorys:list, target:str,)->pd.DataFrame:
     """
-    predicts the normalized value of a numeric feature when grouped on a category
+    predicts the value and variance of a numeric target feature when grouped on a category
     -------
     requires: pandas
     """
-    for f in numeric_features:
-        group_stats = df.groupby(category)[f].agg(['mean', 'std']).rename(
-            columns={'mean': f'{f}_{category}_m', 'std': f'{f}_{category}_std'})
+    for category in categorys:
+        group_stats = df[df.target_mask.eq(True)].groupby(category)[target].agg(['mean', 'std']).rename(
+            columns={'mean': f'{target}_by_{category}_m', 'std': f'{target}_by_{category}_std'})
         df = df.merge(group_stats, on=category, how='left')
-        df[f'{f}_on_{category}'] = (df[f] - df[f'{f}_{category}_m']) /  df[f'{f}_{category}_std']
-        df.drop(columns = [f'{f}_{category}_m', f'{f}_{category}_std'], inplace = True)
     return df
 
 def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
@@ -500,10 +498,10 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
         return df
     for feature in features:
         if df[feature].nunique() < 16:
-            df[f'{feature}_by_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
+            df[f'{feature}_on_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
             X = df[f'{feature}_on_{pivot}'].values
-            df[f'{feature}_by_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
-            df[f'{feature}_by_{pivot}'] = df[f'{feature}_by_{pivot}'].astype('category')
+            df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
+            df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('category')
     return df
 
 
@@ -886,9 +884,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
-                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "--", 'linewidth': 2})
+                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "-", 'linewidth': 1})
         sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
-                     dashes=False, color='xkcd:rust', linewidth=3)
+                     color='xkcd:rust', linesyle=":", linewidth=1)
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
