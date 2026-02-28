@@ -632,12 +632,13 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
         test_v = df_test[feature].unique()
         train_noise = [f for f in train_v if f not in test_v]
         test_noise = [f for f in test_v if f not in train_v]
+        values = [f for f in train_v] + test_noise
         if len(train_v) < 2:
             print(f"{feature} is trivial, dropping {feature}")
             df.drop(col=feature, inplace=True)
         else:
             noise_dict = {}
-            for v in train_v + test_noise:
+            for v in values:
                 if v in test_noise:
                     noise_dict[v] = -1
                 elif v in train_noise:
