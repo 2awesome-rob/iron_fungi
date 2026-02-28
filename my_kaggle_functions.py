@@ -473,6 +473,40 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     print(f"Added {len(new_features)} inteaction features")
     return df
 
+def get_feature_by_grouping_on_cat(df:pd.DataFrame, numeric_features:list, category:str)->pd.DataFrame:
+    """
+    predicts the normalized value of a numeric feature when grouped on a category
+    -------
+    requires: pandas
+    """
+    for f in numeric_features:
+        group_stats = df.groupby(category)[f].agg(['mean', 'std']).rename(
+            columns={'mean': f'{f}_{category}_m', 'std': f'{f}_{category}_std'})
+        df = df.merge(group_stats, on=category, how='left')
+        df[f'{f}_on_{category}'] = (df[f] - df[f'{f}_{category}_m']) /  df[f'{f}_{category}_std']
+        df.drop(columns = [f'{f}_{category}_m', f'{f}_{category}_std'], inplace = True)
+    return df
+
+def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
+    """
+    returns each combination of category values as a new category
+    --------
+    remember to check categories after
+    --------
+    requires: pandas, scikit learn, numpy
+    """
+    if df[pivot].nunique() > 16:
+        print(f"{pivot} has too many values: {df[pivot].nunique()}")
+        return df
+    for feature in features:
+        if df[feature].nunique() < 16:
+            df[f'{feature}_by_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
+            X = df[f'{feature}_on_{pivot}'].values
+            df[f'{feature}_by_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
+            df[f'{feature}_by_{pivot}'] = df[f'{feature}_by_{pivot}'].astype('category')
+    return df
+
+
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     fits a mapper to a sample of the data and then applys the mapping function to the full dataset to create new features
@@ -676,6 +710,16 @@ def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4,
         print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
     return df, df_outlier
 
+def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=20, name:str="")-> pd.DataFrame:
+    """
+    Uses skl.neighbors model to identify outliers across given features
+    returns df with new feature identifying outliers
+    """
+    outliermodel = skl.neighbors.LocalOutlierFactor(n_neighbors=n_neighbors)
+    df[f'outlier_{name}'] = outliermodel.fit_predict(df[features])
+    print("=" * 69, f"\n{100 * df.query('outlier == -1').shape[0] / df.shape[0] :.2f}% of samples identified as outliers")
+    return df
+
 def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, verbose:bool=True, debug:bool=False)->pd.DataFrame:
     """
     decomposes a datetime feature into numeric and categorical features suitable for training
@@ -800,13 +844,43 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
             ax.set_xticks(x, labels, rotation=90)
         ax.set_xlabel("")
-
+#####
 #TODO: evaluate 2D histogram plots (alternative scatter) for EDA utility with bool or categorical targets
 #    sns.histplot(data=df, stat='percent', x = feature, y=target, legend = False, bins=20,
 #                 discrete = (c, False), log_scale=(False, False),
 #                 pthresh=0.01, pmax=.99,
 #                 color = 'DodgerBlue',
 #                 )
+####
+# TODO: consider datetime feature plots
+### Plot  vs date-time
+#def datetime_plot(df_list, measure, title, target, datetime_feature = 'date'):
+#    print("=" * 69)
+#    fig, axs = plt.subplots(nrows=1, ncols=1, sharex = True, sharey = True, figsize=(12, 3))
+#    plt.subplot(1, 1, 1)
+#    for df in df_list:
+#        sns.lineplot(data=df, x=f"{datetime_feature}", y=f"{measure}{target}")
+#    sns.despine()
+#    plt.suptitle(t = f'seasonal {title}', fontsize = 10, x = 0.9, ha ='right') 
+#    plt.show()
+#    return
+#
+#def seasonal_count_plot(df, datetime_feature = 'date', target = target):
+#    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].count().rename(f"count_{target}").reset_index()
+#    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].count().rename(f"count_{target}").reset_index()
+#    weekly_df[f'daily_{target}'] = weekly_df[f'count_{target}'] / 7
+#    monthly_df[f'daily_{target}'] = monthly_df[f'count_{target}'] / 30
+#    datetime_plot([weekly_df, monthly_df], "daily_", f"sales count by week/month", target = target)
+#    return
+#    
+#def seasonal_mean_plot(df, datetime_feature = 'date', target = target):
+#    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].mean().rename(f"mean_{target}").reset_index()
+#    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].mean().rename(f"mean_{target}").reset_index()
+#    yearly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="YS")])[target].mean().rename(f"mean_{target}").reset_index()
+#    datetime_plot([weekly_df, monthly_df, yearly_df], "mean_", f"{target} by week/month/year", target = target)
+#    return
+
+
 
     ### scatterplot with trendline for numerical feature relationship to target (num plot 1)
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
@@ -814,7 +888,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
                     scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "--", 'linewidth': 2})
         sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
-                     dashes=False, line_kws={'color': 'xkcd:rust', 'linewidth': 3})
+                     dashes=False, kws={'color': 'xkcd:rust', 'linewidth': 3})
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
@@ -1172,13 +1246,13 @@ def plot_feature_corr(df, features, target=None):
         mask=np.tril(df[plot_features].corr()), 
         annot=True if (len(plot_features)<12) else False, 
         fmt='.2f', 
+        square=True,
+        cbar=False,
         cmap='cividis', #coolwarm is a good cmap
         vmin = -1, vmax = 1,
         linewidth=1, linecolor='white')
 
     plt.xticks(())
-    #TODO update yticks to only show every 5th line
-#    plt.yticks(()) 
     plt.xlabel("")
     plt.ylabel("")
     plt.show()
