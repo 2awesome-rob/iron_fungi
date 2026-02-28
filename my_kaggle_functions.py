@@ -383,12 +383,14 @@ def clean_categoricals(df: pd.DataFrame, features: list,
             .astype(str)
             .str.strip()
             .str.casefold()
+            .str.replace("-", "_", regex=False)
+            .str.replace(". ", "__", regex=False)
+            .str.replace(", ", "_", regex=False)
             .str.replace(" ", "_", regex=False)
             .str.replace("(", "", regex=False)
             .str.replace(")", "", regex=False)
-            .str.replace("-", "_", regex=False)
-            .str.replace(".", "_", regex=False)
-            .str.replace(",", "_", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", "", regex=False)
         )
         df[col] = df[col].str[:string_length].astype('category')
     return df
@@ -621,6 +623,8 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     requires: pandas, numpy
     """
     df[features] = df[features].astype('category')
+    noise = -1 if df['features'].cat.categories.dtype == 'int' or df['features'].cat.categories.dtype == 'float' else "noise"
+
     df_train = df[df.target_mask.eq(True)]
     df_test = df[df.target_mask.eq(False)]
     #assume threshold is given in percent
@@ -640,13 +644,13 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
             noise_dict = {}
             for v in values:
                 if v in test_noise:
-                    noise_dict[v] = -1
+                    noise_dict[v] = noise
                 elif v in train_noise:
-                    noise_dict[v] = -1
+                    noise_dict[v] = noise
                 elif df_train.groupby(feature)[target].count()[v] < noise_ceil_train:
-                    noise_dict[v] = -1
+                    noise_dict[v] = noise
                 elif df_test.groupby(feature)[target].count()[v] < noise_ceil_test:
-                    noise_dict[v] = -1
+                    noise_dict[v] = noise
             if len(noise_dict.keys()) == 0:
                 print(f"No noise identified in {feature}")
                 if target is not None:
