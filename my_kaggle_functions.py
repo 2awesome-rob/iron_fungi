@@ -637,8 +637,10 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
             df.drop(col=feature, inplace=True)
         else:
             noise_dict = {}
-            for v in train_v:
-                if v in test_noise or v in train_noise:
+            for v in train_v + test_noise:
+                if v in test_noise:
+                    noise_dict[v] = -1
+                elif v in train_noise:
                     noise_dict[v] = -1
                 elif df_train.groupby(feature)[target].count()[v] < noise_ceil_train:
                     noise_dict[v] = -1
@@ -659,9 +661,12 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
                         tgt_mean=df_train.groupby(f"{feature}_denoise")[target].mean().to_dict()
                         df[f"{feature}_tgt_mean"] = df[f"{feature}_denoise"].replace(tgt_mean).astype('float32')
                 else:
-                    print(f"❌ unable to denoise {feature}")
+                    print(f"""❌ Unable to denoise {feature}.\n
+                              training noise: {training_noise} samples\n
+                              test noise: {df_test[df_test[f"{feature}_denoise"].eq(-1)].shape[0]} samples
+                          """)
             else:
-                print(f"❌ unable to denoise {feature}")
+                print(f"❌ Unable to denoise {feature}. Noise: {noise_dict.keys()}")
     return df  
 
 def impute_using(df: pd.DataFrame, impute_informant: str, impute_features:list)-> pd.DataFrame:
