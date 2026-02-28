@@ -888,7 +888,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
                     scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "--", 'linewidth': 2})
         sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
-                     dashes=False, kws={'color': 'xkcd:rust', 'linewidth': 3})
+                     dashes=False, color='xkcd:rust', linewidth=3)
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
