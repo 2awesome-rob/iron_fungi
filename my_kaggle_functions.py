@@ -884,9 +884,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
-                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': "-", 'linewidth': 1})
+                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
         sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
-                     color='xkcd:rust', linesyle=":", linewidth=1)
+                     color='xkcd:rust', linewidth=1)
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
