@@ -623,7 +623,6 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     requires: pandas, numpy
     """
     df[features] = df[features].astype('category')
-    noise = -1 if df['features'].cat.categories.dtype == 'int' or df['features'].cat.categories.dtype == 'float' else "noise"
 
     df_train = df[df.target_mask.eq(True)]
     df_test = df[df.target_mask.eq(False)]
@@ -632,6 +631,7 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
 
     for feature in features:
+        noise = -1 if df[feature].cat.categories.dtype == 'int' or df[feature].cat.categories.dtype == 'float' else "noise"
         train_v = df_train[feature].unique()
         test_v = df_test[feature].unique()
         train_noise = [f for f in train_v if f not in test_v]
