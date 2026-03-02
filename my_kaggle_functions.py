@@ -1846,3 +1846,72 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     print("=" * 6, 'save success', "=" * 6, "\n")
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
     return y_pred
+
+
+
+"""
+TODO: GLM feature analysis
+from statsmodels.graphics.api import abline_plot
+def get_glm_analysis(df, X = numeric_features, y = targets, plot = False): 
+    glm_binomial = sm.GLM(df[y], df[X], family = sm.families.Binomial())
+    result = glm_binomial.fit()
+    print(result.summary())
+    if plot == True:
+        fig, ax = plt.subplots()
+        resid = result.resid_deviance.copy()
+        resid_std = stats.zscore(resid)
+        ax.hist(resid_std, bins=33)
+        ax.set_title('Histogram of standardized deviance residuals')
+        plt.show()
+        graphics.gofplots.qqplot(resid, line='r')
+        
+
+get_glm_analysis(TRAIN, plot = True)
+
+
+TODO: Time Data
+#plot auto correlation
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf 
+
+# Aggregate data by day to create the time series
+df = TRAIN.groupby('date')[target].mean()
+
+plt.figure(figsize=(10, 6))
+plot_acf(df.dropna(), lags=52)
+plt.title('Autocorrelation Plot')
+plt.show()
+
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+def decompose_plot(df):
+    dtf = df.set_index('date')
+    dtf = dtf[target_columns].resample('D').mean()
+    dtf['year'] = dtf.index.year
+    dtf['month'] = dtf.index.month
+
+    j = len(dtf['year'].unique())
+    
+    fig, axs = plt.subplots(nrows= j, ncols=1, sharey = True, figsize=(15, 3 * j))
+
+    for i, year in enumerate(dtf['year'].unique()):
+        yearly_data = dtf[dtf['year'] == year]
+        decomposition = seasonal_decompose(yearly_data[target], model='average', period=12)
+        plt.subplot(j, 1, i + 1)
+        decomposition.trend.plot()
+    plt.suptitle(t = 'Trend Plots of Sales by Year', fontsize = 11) 
+    plt.show()
+    
+    fig, axs = plt.subplots(nrows= j, ncols=1, sharey = True, figsize=(15, 3 * j))
+
+    for i, year in enumerate(dtf['year'].unique()):
+        yearly_data = dtf[dtf['year'] == year]
+        decomposition = seasonal_decompose(yearly_data[target], model='average', period=12)
+        plt.subplot(j, 1, i + 1)
+        decomposition.seasonal.plot()
+    plt.suptitle(t = 'Seasonal Plots of Sales by Year', fontsize = 11) 
+    plt.show()
+
+
+decompose_plot(TRAIN)
+
+"""
