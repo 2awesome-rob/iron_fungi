@@ -799,7 +799,10 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     -----------
     requires: seaborn, matplotlib, pandas
     """
-    df_plot = df[df.target_mask.eq(True)][target].to_frame()
+    try:
+        df_plot = df[df.target_mask.eq(True)][target].to_frame()
+    except:
+        df_plot = df[target].to_frame()
     if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
         sns.histplot(df_plot[target], 
                      bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
