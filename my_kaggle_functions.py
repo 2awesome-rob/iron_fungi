@@ -1,9 +1,11 @@
-### Import common libraries and toolkits 
-#functions for use in kaggle tabular data projects
-#from pyexpat import features
+# Rob's functions for use in kaggle tabular data projects
+# Please let me know if you use !!!
+# Feedback always appreciated
+
+####################
+# Import common libraries and toolkits 
 import numpy as np
 import pandas as pd 
-#import re
 
 import sklearn as skl
 import lightgbm as lgb
@@ -12,10 +14,8 @@ import catboost as catb
 
 import torch
 
-#import math
+import math
 from scipy import stats
-#import statsmodels.api as sm
-#import statsmodels.formula.api as smf
 import random
 import itertools
 
@@ -27,10 +27,14 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly as go
-#import plotly.express as px
-#from statsmodels import graphics
 
 from multiprocessing import cpu_count
+
+#import plotly.express as px
+#from statsmodels import graphics
+#from pyexpat import features
+#import statsmodels.api as sm
+#import statsmodels.formula.api as smf
 
 
 ###Initiaalization and data loading functions
@@ -506,7 +510,6 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
             df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('category')
     return df
 
-
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     fits a mapper to a sample of the data and then applys the mapping function to the full dataset to create new features
@@ -786,8 +789,6 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
     if verbose:
         print(f"{feature} features: {[f for f in df.columns if feature in f]}")
     return df
-
-
 
 ###EDA functions
 
@@ -1290,7 +1291,6 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
     else:
         print(f"Object features: {[f for f in features if f not in features_alt]}")
 
-
 ### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
                           y_train: pd.Series, y_val:pd.Series,
@@ -1736,9 +1736,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     if task.startswith("regression"):
         meta_model = skl.linear_model.Ridge(alpha=1.0)
     else:
-        meta_model = skl.neural_network.MLPClassifier(hidden_layer_sizes=(64,64,64), 
-                                                      max_iter=1000, 
-                                                      early_stopping=True)
+        meta_model = skl.linear_model.LogisticRegression()
     # note: when TargetTransformer is used, meta model is NOT trained on inverse transformed target values. 
     # Meta model output will still REQUIRE inverse transform
     print("Training Meta Model")
@@ -1851,7 +1849,6 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     return y_pred
 
 
-
 """
 TODO: GLM feature analysis
 from statsmodels.graphics.api import abline_plot
@@ -1916,5 +1913,36 @@ def decompose_plot(df):
 
 
 decompose_plot(TRAIN)
+
+
+#TODO Evaluate numeric-> numeric plots
+### Plot price as function of numeric features
+def plot_regression(df, x, y):
+    j = len(x)
+    fig, axs = plt.subplots(nrows=1, ncols=j, sharey=True, figsize=(15,3))
+    for i, col in enumerate(x):
+        plt.subplot(1, j, i+1)
+        sns.regplot(data=df, 
+                    x=col, y=y,
+                    x_estimator=np.mean, x_bins=50,  scatter=True, ci = 90, 
+                    fit_reg=True,
+                    #order = 3,
+                   )
+    plt.show()
+
+def plot_pair(df, x, y):
+    g = sns.PairGrid(df, y_vars=y,
+                     x_vars=x, height = 5, aspect = 1,
+                     )
+    g.map(sns.regplot, x_estimator=np.mean)
+    g.tick_params(axis = 'x', rotation =75, size = 6)
+    g.tick_params(axis = 'y', size = 8)
+    g.set(xlabel = None)
+    plt.suptitle(t = f"Mean {y} as Function of Numeric Features", fontsize = 14, weight = 'bold') 
+    sns.despine(fig=g.fig, left=True)
+
+
+plot_regression(TRAIN, num_feature_names, 'price')
+#plot_pair(TRAIN, num_feature_names, 'price')
 
 """
