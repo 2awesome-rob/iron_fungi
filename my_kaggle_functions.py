@@ -567,6 +567,58 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         plt.show()
     return df.join(X_features)
 
+def get_pls_embeddings(df: pd.DataFrame, features:list, target:list, col_names:str, 
+                   sample_size: float=None, n_components:int=2, verbose=True) -> pd.DataFrame:
+    """
+    uses PLS Regression as a supervised dimension reduction 
+    -----------
+    returns: 
+    df with new features added for the encoding
+    if sample_size is provided, fits the mapper to a sample of the data and applies the mapping function to the full dataset
+    if sample_size is not provided, fits the mapper to the full dataset and uses the fitted model to transform the data
+    -----------
+    assumes: mapper is a scikit learn PCA or kernel approximation object with fit_transform method or a UMAP object with fit and transform methods
+    requires: numpy, pandas, time, matplotlib, seaborn, scikit
+    """
+    tic=time()
+    print("Training PLS embedding function...")
+    mapper = skl.cross_decomposition.PLSRegression(n_components=n_components)
+    if sample_size is None:
+        df_train = df[df.target_mask.eq(True)]    
+    elif sample_size <= 1:
+        n = min(int(df_train.shape[0] * sample_size), 10000)
+        df_train = df[df.target_mask.eq(True)].sample(n=n, random_state=69)
+    elif sample_size > 1:
+        n = min(df_train.shape[0], int(sample_size))
+        df_train = df[df.target_mask.eq(True)].sample(n=n, random_state=69)
+    mapper = mapper.fit(df_train[features], df_train[target])
+    print("Mapping features to embeddings...")
+    reduced_data = mapper.transform(df[features])
+
+    cols = [(col_names + str(i)) for i in range(1, 1 + reduced_data.shape[1])]
+    X_features = pd.DataFrame(reduced_data, columns=cols, index=df.index)
+    print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
+
+    if verbose:
+        fig, ax = plt.subplots(figsize=(5, 3))
+        if target != None:
+            palette = get_colors(df[target].unique(), get_cmap=True)
+            X_features[target] = df[target]
+            hue=target
+        else: 
+            palette = get_colors()
+            hue=None
+        df_sampled = X_features.sample(n=min(800, X_features.shape[0]), random_state=69)
+        sns.scatterplot(data=df_sampled, x=cols[0], y=cols[1], hue=hue, 
+                        ax=ax, legend=False, palette=palette).set_title(f"{cols[1]} vs {cols[0]}")
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
+        if target != None: X_features.drop(target, inplace = True, axis = 1)
+        plt.show()
+    return df.join(X_features)
+
 def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, verbose:bool=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
