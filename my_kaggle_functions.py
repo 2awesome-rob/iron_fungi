@@ -1680,7 +1680,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     return models, training_features
 
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
-                    task: str = "regression", folds: int = 7,
+                    task: str = "regression", folds: int = 7, meta_model=None,
                     TargetTransformer=None, verbose: bool = True):
     """
     trains models with cross validation and returns trained models and a stacking meta model
@@ -1785,10 +1785,11 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                 task=task)
 
     # ---- Stacking meta-model on OOF predictions ----
-    if task.startswith("regression"):
-        meta_model = skl.linear_model.Ridge(alpha=1.0)
-    else:
-        meta_model = skl.linear_model.LogisticRegression()
+    if meta_model == None:
+        if task.startswith("regression"):
+            meta_model = skl.linear_model.Ridge(alpha=1.0)
+        else:
+            meta_model = skl.linear_model.LogisticRegression()
     # note: when TargetTransformer is used, meta model is NOT trained on inverse transformed target values. 
     # Meta model output will still REQUIRE inverse transform
     print("Training Meta Model")
