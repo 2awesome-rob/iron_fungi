@@ -1792,7 +1792,8 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             meta_model = skl.linear_model.LogisticRegression()
     # note: when TargetTransformer is used, meta model is NOT trained on inverse transformed target values. 
     # Meta model output will still REQUIRE inverse transform
-    print("Training Meta Model")
+    print(meta_model)
+    print(f"Training Meta Model on {oof_matrix.shape[1]} OOF predictions and {y.shape[0]} samples")
     meta_model.fit(oof_matrix, y)
 
     return trained_models, meta_model
