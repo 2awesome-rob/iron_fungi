@@ -957,7 +957,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                         
         _annotate_bins(top_idx, "+", 'xkcd:gold')
         _annotate_bins(bottom_idx, "-", 'xkcd:rust')
-
+        ax.set_title(f'{target} vs {feature}')
+        ax.set_ylabel("")
+        ax.set_xlabel("")
 
     ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
     def _plot_cat_relationship(ax, feature, order, color_map, y_min=0, y_max=100):
@@ -1098,7 +1100,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
         ### for each feature determine applicable plot selection
-        is_cat = df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or df[feature].nunique() < 10
+        is_cat = df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or (df[feature].dtype=='int' and df[feature].nunique() < 10)
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
             df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
