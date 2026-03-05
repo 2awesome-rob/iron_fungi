@@ -216,7 +216,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     """
     if df[target].dtype == 'O' or df[target].dtype.name == 'category':
         df["label"] = df[target]
-        print("Target is not Numeric\nLabelis target")
+        print("Target is not Numeric\nLabel is target")
         #targets.append("label")
     elif df[target].nunique() < 8:
         df["label"] = df[target].max() - df[target]
@@ -914,45 +914,10 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
             ax.set_xticks(x, labels, rotation=90)
         ax.set_xlabel("")
-#####
-#TODO: evaluate 2D histogram plots (alternative scatter) for EDA utility with bool or categorical targets
-#    sns.histplot(data=df, stat='percent', x = feature, y=target, legend = False, bins=20,
-#                 discrete = (c, False), log_scale=(False, False),
-#                 pthresh=0.01, pmax=.99,
-#                 color = 'DodgerBlue',
-#                 )
-####
-# TODO: consider datetime feature plots
-### Plot  vs date-time
-#def datetime_plot(df_list, measure, title, target, datetime_feature = 'date'):
-#    print("=" * 69)
-#    fig, axs = plt.subplots(nrows=1, ncols=1, sharex = True, sharey = True, figsize=(12, 3))
-#    plt.subplot(1, 1, 1)
-#    for df in df_list:
-#        sns.lineplot(data=df, x=f"{datetime_feature}", y=f"{measure}{target}")
-#    sns.despine()
-#    plt.suptitle(t = f'seasonal {title}', fontsize = 10, x = 0.9, ha ='right') 
-#    plt.show()
-#    return
-#
-#def seasonal_count_plot(df, datetime_feature = 'date', target = target):
-#    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].count().rename(f"count_{target}").reset_index()
-#    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].count().rename(f"count_{target}").reset_index()
-#    weekly_df[f'daily_{target}'] = weekly_df[f'count_{target}'] / 7
-#    monthly_df[f'daily_{target}'] = monthly_df[f'count_{target}'] / 30
-#    datetime_plot([weekly_df, monthly_df], "daily_", f"sales count by week/month", target = target)
-#    return
-#    
-#def seasonal_mean_plot(df, datetime_feature = 'date', target = target):
-#    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].mean().rename(f"mean_{target}").reset_index()
-#    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].mean().rename(f"mean_{target}").reset_index()
-#    yearly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="YS")])[target].mean().rename(f"mean_{target}").reset_index()
-#    datetime_plot([weekly_df, monthly_df, yearly_df], "mean_", f"{target} by week/month/year", target = target)
-#    return
+    
+    ### TODO: add distribution plot for datetime feature (dt plot 0)
 
-
-
-    ### scatterplot with trendline for numerical feature relationship to target (num plot 1)
+    ### scatterplot with trendline for numerical feature relationship to numeric target (num plot 1N)
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
@@ -964,7 +929,37 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_ylim(y_min, y_max)
         ax.set_xlabel("")
 
-    ### psedo-scatterplot with trendline for categorical feature relationship to target (cat plot 1)
+    ### density plot for numeric feature relationship to categorical target (num plot 1C)
+    def _plot_num_tgt_cat_relationship(ax, feature):
+        sns.histplot(data=df, stat='percent', x=feature, y=target,
+                     discrete=[True, True], legend=False, pthresh=0.02, pmax=.98, ax=ax, zorder=0)
+        # get mesh edges and count
+        quadmesh = ax.collections[0]
+        x_edges = quadmesh._coordinates[0, :, 0]
+        y_edges = quadmesh._coordinates[:, 0, 1]
+        ny = len(y_edges) - 1
+        nx = len(x_edges) - 1
+        # find top and bottom densities
+        densities = quadmesh.get_array().data
+        sorted_idx = np.argsort(densities)
+        N = len(x_edges)//2
+        top_idx = sorted_idx[-N:]
+        bottom_idx = sorted_idx[:N]
+
+        def _annotate_bins(indices, symbol, color):
+            for idx in indices:
+                iy, ix = np.unravel_index(idx, (ny, nx))
+                x_center = (x_edges[ix] + x_edges[ix+1]) / 2
+                y_center = (y_edges[iy] + y_edges[iy+1]) / 2
+                ax.text(x_center, y_center, symbol,
+                    ha="center", va="center",
+                    color=color, fontsize=12, zorder=2)
+                        
+        _annotate_bins(top_idx, "+", 'xkcd:gold')
+        _annotate_bins(bottom_idx, "-", 'xkcd:rust')
+
+
+    ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
     def _plot_cat_relationship(ax, feature, order, color_map, y_min=0, y_max=100):
         grouped = df.groupby(feature)
         sampled_dfs = []
@@ -1001,6 +996,49 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_ylim(y_min, y_max)
         ax.set_xlabel("")
 
+    ### density plot for categorical feature relationship to categorical target (cat plot 1C)
+    def _plot_cat_tgt_cat_relationship(ax, feature):
+        sns.histplot(data=df, stat='percent', x=feature, y=target, zorder=0, 
+                                  legend=False, discrete=[True,True], pthresh=0.02, pmax=.98, ax=ax)
+
+        mode_points = df.groupby(feature)[target].agg(lambda x: x.value_counts().idxmax()).reset_index()
+        sns.pointplot(data=mode_points, x=feature, y=target, zorder=1,
+                                    color='xkcd:rust', errorbar=None)
+        ax.set_title(f'{target} vs {feature}')
+        ax.set_ylabel("")
+        ax.set_xlabel("")
+
+    ### TODO: scatterplot with trendline for datetime feature relationship to target (dt plot 1)
+    ####
+    # TODO: consider datetime feature plots
+    ### Plot  vs date-time
+    #def datetime_plot(df_list, measure, title, target, datetime_feature = 'date'):
+    #    print("=" * 69)
+    #    fig, axs = plt.subplots(nrows=1, ncols=1, sharex = True, sharey = True, figsize=(12, 3))
+    #    plt.subplot(1, 1, 1)
+    #    for df in df_list:
+    #        sns.lineplot(data=df, x=f"{datetime_feature}", y=f"{measure}{target}")
+    #    sns.despine()
+    #    plt.suptitle(t = f'seasonal {title}', fontsize = 10, x = 0.9, ha ='right') 
+    #    plt.show()
+    #    return
+    #
+    #def seasonal_count_plot(df, datetime_feature = 'date', target = target):
+    #    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].count().rename(f"count_{target}").reset_index()
+    #    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].count().rename(f"count_{target}").reset_index()
+    #    weekly_df[f'daily_{target}'] = weekly_df[f'count_{target}'] / 7
+    #    monthly_df[f'daily_{target}'] = monthly_df[f'count_{target}'] / 30
+    #    datetime_plot([weekly_df, monthly_df], "daily_", f"sales count by week/month", target = target)
+    #    return
+    #    
+    #def seasonal_mean_plot(df, datetime_feature = 'date', target = target):
+    #    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].mean().rename(f"mean_{target}").reset_index()
+    #    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].mean().rename(f"mean_{target}").reset_index()
+    #    yearly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="YS")])[target].mean().rename(f"mean_{target}").reset_index()
+    #    datetime_plot([weekly_df, monthly_df, yearly_df], "mean_", f"{target} by week/month/year", target = target)
+    #    return
+
+
     ### boxplot shows outliers and limits by label  (num plot 2)
     def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):        
         if label == None:
@@ -1034,43 +1072,55 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color = 'xkcd:steel grey')
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
-    ### limit number of features plotted/size of plot
-    f = len(features)
-    if len(features) > 20:
-        print("Plotting 20 features")
-        f = 20
-        features = features[:20]
+    ### TODO: what should this plot look like for datetime features (dt plot 2)
 
-    ### define limits of relationship plots
-    if not y_min: y_min = df[target].min()
-    if not y_max: y_max = df[target].max()
+    ### limit number of features plotted/size of plot
+    f = min(20, len(features))
+    features = features[:f]
+    if f > 20: print("Plotting first 20 features")
     
     ### gridspec to build plot layout
     fig = plt.figure(figsize=(10, f * 3))
     gs = mpl.gridspec.GridSpec(f, 3, figure=fig, hspace=0.4)
-    
     row_anchors = []
+
+    ### determine nature of target
+    tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
+               df[target].dtype == "category" or df[target].nunique() < 10)
+    if tgt_cat:
+        y_order = sorted(df[target].unique().tolist())
+        df[target] = pd.Categorical(df[target], categories=y_order, ordered=True)
+    else:
+        if not y_min: y_min = df[target].min()
+        if not y_max: y_max = df[target].max()
+
     for i, feature in enumerate(features):
-        ### for each feature determine applicable plot selection
-        is_cat = (df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or
-                  (np.issubdtype(df[feature].dtype, np.integer) and len(df[feature].dropna().unique()) < 10))
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
+        ### for each feature determine applicable plot selection
+        is_cat = df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or df[feature].nunique() < 10
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
+            df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
             color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
+            #distribution plot (0)
             _plot_cat_distribution(ax0, feature, order, color_map)
-            _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
+            #target relationship plot(1)
+            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature)
+            else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
+            #target distribution by feature plot (2)
             if label != None:
                 _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
-                           inner_label=low_label, outer_label=high_label)
+                                inner_label=low_label, outer_label=high_label)
         else:
+            #distribution plot (0)
             _plot_num_distribution(ax0, feature)
-            _plot_num_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
+            #target relationship plot(1)
+            if tgt_cat: _plot_num_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature)
+            else: _plot_num_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
             if label != None:
                 _plot_num_boxplot(fig.add_subplot(gs[i, 2]), feature, label, 
-                            top_label=high_label, bottom_label=low_label)
-
+                                                  top_label=high_label, bottom_label=low_label)
     ### add tear lines between features
     for i in range(f - 1):
         bottom_y = row_anchors[i].get_position().y0
