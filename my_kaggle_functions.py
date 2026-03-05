@@ -933,47 +933,42 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     ### density plot for numeric feature relationship to categorical target (num plot 1C)
     def _plot_num_tgt_cat_relationship(ax, feature, y_order):
         sns.histplot(data=df, stat='percent', x=feature, y=target,
-                     discrete=[True, True], legend=False, pthresh=0.02, pmax=.98, ax=ax, zorder=0)
-        # get mesh edges and count
+                     discrete=[True, True], legend=False, ax=ax,
+                     pthresh=0.002, pmax=.998, zorder=0)
         quadmesh = ax.collections[0]
-        #DEBUG
-        print(quadmesh)
+        densities = quadmesh.get_array().data
+        densities_flat = densities.ravel()
         x_edges = quadmesh._coordinates[0, :, 0]
         y_edges = quadmesh._coordinates[:, 0, 1]
-        #DEBUG
-        print(x_edges)
-        print(y_edges)
         ny = len(y_edges) - 1
         nx = len(x_edges) - 1
-        # find top and bottom densities
-        densities = quadmesh.get_array().data
-        sorted_idx = np.argsort(densities)
+        sorted_idx = np.argsort(densities_flat)
         N = min(len(x_edges)//2, 10)
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
-
         def _annotate_bins(indices, symbol, color):
             for idx in indices:
                 iy, ix = np.unravel_index(idx, (ny, nx))
                 x_center = (x_edges[ix] + x_edges[ix+1]) / 2
                 y_center = (y_edges[iy] + y_edges[iy+1]) / 2
-                ax.text(x_center, y_center, symbol,
-                    ha="center", va="center",
-                    color=color, fontsize=12, zorder=2)
-                        
+                ax.text(float(x_center), float(y_center), symbol,
+                        ha="center", va="center",
+                        color=color, fontsize=12, zorder=2)
+
         _annotate_bins(top_idx, "+", 'xkcd:gold')
         _annotate_bins(bottom_idx, "-", 'xkcd:rust')
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
-        y = ax.get_yticks() 
-        if len(y_order) < 5: 
+        y = ax.get_yticks()
+        if len(y_order) < 5:
             ax.set_yticks(y, y_order, rotation=90)
         else:
             labels = [""] * len(y)
             labels[0] = y_order[0]
             labels[-1] = y_order[-1]
             ax.set_yticks(y, labels, rotation=90)
+
 
     ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
     def _plot_cat_relationship(ax, feature, order, color_map, y_min=0, y_max=100):
