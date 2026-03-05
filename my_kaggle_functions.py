@@ -961,14 +961,11 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
-
-        ax.set_yticks([])
-        if df[target].nunique < 4: 
-            y = ax.get_yticks() 
+        y = ax.get_yticks() 
+        if df[target].nunique() < 5: 
             ax.set_yticks(y, rotation=90)
         else:
-            y = ax.get_yticks() 
-            labels = ["" for i in y]
+            labels = [""] * len(y)
             labels[0] = y[0]
             labels[-1] = y[-1]
             ax.set_yticks(y, labels, rotation=90)
