@@ -943,7 +943,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         # find top and bottom densities
         densities = quadmesh.get_array().data
         sorted_idx = np.argsort(densities)
-        N = len(x_edges)//2
+        N = min(len(x_edges)//2, 10)
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
 
@@ -1088,7 +1088,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         cats = sorted(df[label].dropna().unique().tolist())
         ring_width = 0.7 / len(cats)
         if inner_label == "" and outer_label =="":
-            inner_label, outer_label = cats[-1], cats[0]
+            inner_label, outer_label = cats[0], cats[-1]
         for i, cat in enumerate(cats):
             value_counts = df[df[label] == cat][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
@@ -1130,7 +1130,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
         ### for each feature determine applicable plot selection
-        is_cat = df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or (df[feature].dtype=='int' and df[feature].nunique() < 10)
+        is_cat = (df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or (df[feature].dtype=='int' and df[feature].nunique() < 10))
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
             df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
