@@ -936,8 +936,13 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                      discrete=[True, True], legend=False, pthresh=0.02, pmax=.98, ax=ax, zorder=0)
         # get mesh edges and count
         quadmesh = ax.collections[0]
+        #DEBUG
+        print(quadmesh)
         x_edges = quadmesh._coordinates[0, :, 0]
         y_edges = quadmesh._coordinates[:, 0, 1]
+        #DEBUG
+        print(x_edges)
+        print(y_edges)
         ny = len(y_edges) - 1
         nx = len(x_edges) - 1
         # find top and bottom densities
