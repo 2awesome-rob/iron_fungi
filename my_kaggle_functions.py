@@ -893,7 +893,8 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     df = df_[df_.target_mask.eq(True)]
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
-        sns.histplot(df[feature], ax=ax, bins = 50)
+        bins = min(50, df[feature].nunique())
+        sns.histplot(df[feature], ax=ax, bins = 50, discrete=False)
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
@@ -961,6 +962,17 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_ylabel("")
         ax.set_xlabel("")
 
+        ax.set_yticks([])
+        if df[target].nunique < 4: 
+            y = ax.get_yticks() 
+            ax.set_yticks(y, rotation=90)
+        else:
+            y = ax.get_yticks() 
+            labels = ["" for i in y]
+            labels[0] = y[0]
+            labels[-1] = y[-1]
+            ax.set_yticks(y, labels, rotation=90)
+
     ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
     def _plot_cat_relationship(ax, feature, order, color_map, y_min=0, y_max=100):
         grouped = df.groupby(feature)
@@ -999,7 +1011,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_xlabel("")
 
     ### density plot for categorical feature relationship to categorical target (cat plot 1C)
-    def _plot_cat_tgt_cat_relationship(ax, feature):
+    def _plot_cat_tgt_cat_relationship(ax, feature, order):
         sns.histplot(data=df, stat='percent', x=feature, y=target, zorder=0, 
                                   legend=False, discrete=[True,True], pthresh=0.02, pmax=.98, ax=ax)
 
@@ -1009,6 +1021,21 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
+        if len(order) > 8: 
+            x = ax.get_xticks()
+            ax.set_xticks(x, order, rotation=90)
+        if len(order) > 20:
+            x = ax.get_xticks()
+            labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
+            ax.set_xticks(x, labels, rotation=90)
+        y = ax.get_yticks() 
+        if df[target].nunique < 4: 
+            ax.set_yticks(y, rotation=90)
+        else:
+            labels = [""] * len(y)
+            labels[0] = y[0]
+            labels[-1] = y[-1]
+            ax.set_yticks(y, labels, rotation=90)
 
     ### TODO: scatterplot with trendline for datetime feature relationship to target (dt plot 1)
     ####
@@ -1051,6 +1078,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                         hue = df[label], hue_order = sorted(df[label].dropna().unique().tolist()))
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
+            if top_label == "" and bottom_label =="":
+                y = ax.get_yticks() 
+                top_label, bottom_label = y[0], y[-1]
             ax.text(df[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color = 'black')
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
@@ -1108,7 +1138,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             #distribution plot (0)
             _plot_cat_distribution(ax0, feature, order, color_map)
             #target relationship plot(1)
-            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature)
+            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order)
             else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
             #target distribution by feature plot (2)
             if label != None:
