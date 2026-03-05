@@ -868,7 +868,7 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
 
 def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str=None, 
                       sample: int=1000, y_min: float=None, y_max: float=None,
-                      high_label = "Good", low_label = "Bad") -> None:
+                      high_label = "", low_label = "") -> None:
     """ 
     supports feature EDA with numeric targets
     -----------
@@ -931,7 +931,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_xlabel("")
 
     ### density plot for numeric feature relationship to categorical target (num plot 1C)
-    def _plot_num_tgt_cat_relationship(ax, feature):
+    def _plot_num_tgt_cat_relationship(ax, feature, y_order):
         sns.histplot(data=df, stat='percent', x=feature, y=target,
                      discrete=[True, True], legend=False, pthresh=0.02, pmax=.98, ax=ax, zorder=0)
         # get mesh edges and count
@@ -962,12 +962,12 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_ylabel("")
         ax.set_xlabel("")
         y = ax.get_yticks() 
-        if df[target].nunique() < 5: 
-            ax.set_yticks(y, rotation=90)
+        if len(y_order) < 5: 
+            ax.set_yticks(y, y_order, rotation=90)
         else:
             labels = [""] * len(y)
-            labels[0] = y[0]
-            labels[-1] = y[-1]
+            labels[0] = y_order[0]
+            labels[-1] = y_order[-1]
             ax.set_yticks(y, labels, rotation=90)
 
     ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
@@ -1008,7 +1008,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_xlabel("")
 
     ### density plot for categorical feature relationship to categorical target (cat plot 1C)
-    def _plot_cat_tgt_cat_relationship(ax, feature, order):
+    def _plot_cat_tgt_cat_relationship(ax, feature, order, y_order):
         sns.histplot(data=df, stat='percent', x=feature, y=target, zorder=0, 
                                   legend=False, discrete=[True,True], pthresh=0.02, pmax=.98, ax=ax)
 
@@ -1026,12 +1026,12 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
             ax.set_xticks(x, labels, rotation=90)
         y = ax.get_yticks() 
-        if df[target].nunique() < 4: 
-            ax.set_yticks(y, rotation=90)
+        if len(y_order) < 5: 
+            ax.set_yticks(y, y_order, rotation=90)
         else:
             labels = [""] * len(y)
-            labels[0] = y[0]
-            labels[-1] = y[-1]
+            labels[0] = y_order[0]
+            labels[-1] = y_order[-1]
             ax.set_yticks(y, labels, rotation=90)
 
     ### TODO: scatterplot with trendline for datetime feature relationship to target (dt plot 1)
@@ -1066,26 +1066,29 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
 
 
     ### boxplot shows outliers and limits by label  (num plot 2)
-    def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):        
+    def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):
         if label == None:
             sns.boxplot(x = df[feature], ax=ax)
             ax.set_title(f'{feature} outliers')
         else:
+            cats = sorted(df[label].dropna().unique().tolist())
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
-                        hue = df[label], hue_order = sorted(df[label].dropna().unique().tolist()))
+                        hue = df[label], hue_order = cats)
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
-                y = ax.get_yticks() 
-                top_label, bottom_label = y[0], y[-1]
+                top_label, bottom_label = cats[0], cats[-1]
             ax.text(df[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color = 'black')
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
 
     ### donut shows variation in target by category  (cat plot 2)
     def _plot_cat_donut(ax, feature, label, order, color_map, inner_label="", outer_label=""):
+        if label == None: return
         cats = sorted(df[label].dropna().unique().tolist())
         ring_width = 0.7 / len(cats)
+        if inner_label == "" and outer_label =="":
+            inner_label, outer_label = cats[-1], cats[0]
         for i, cat in enumerate(cats):
             value_counts = df[df[label] == cat][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
@@ -1135,7 +1138,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             #distribution plot (0)
             _plot_cat_distribution(ax0, feature, order, color_map)
             #target relationship plot(1)
-            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order)
+            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, y_order)
             else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
             #target distribution by feature plot (2)
             if label != None:
@@ -1145,7 +1148,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             #distribution plot (0)
             _plot_num_distribution(ax0, feature)
             #target relationship plot(1)
-            if tgt_cat: _plot_num_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature)
+            if tgt_cat: _plot_num_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, y_order)
             else: _plot_num_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
             if label != None:
                 _plot_num_boxplot(fig.add_subplot(gs[i, 2]), feature, label, 
