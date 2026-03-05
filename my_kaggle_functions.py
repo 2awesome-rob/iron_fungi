@@ -947,27 +947,25 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
         def _annotate_bins(indices, symbol, color):
+            fontsize=12 if len(indices) < 25 else 10
             for idx in indices:
                 iy, ix = np.unravel_index(idx, (ny, nx))
                 x_center = (x_edges[ix] + x_edges[ix+1]) / 2
                 y_center = (y_edges[iy] + y_edges[iy+1]) / 2
                 ax.text(float(x_center), float(y_center), symbol,
                         ha="center", va="center",
-                        color=color, fontsize=12, zorder=2)
+                        color=color, fontsize=fontsize, zorder=2)
 
-        _annotate_bins(top_idx, "+", 'xkcd:gold')
-        _annotate_bins(bottom_idx, "-", 'xkcd:rust')
+        _annotate_bins(top_idx, "●", 'xkcd:rust') #⊤
+        _annotate_bins(bottom_idx, "-", 'xkcd:rust') #⊥
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
         y = ax.get_yticks()
-        if len(y_order) < 5:
-            ax.set_yticks(y, y_order, rotation=90)
-        else:
-            labels = [""] * len(y)
-            labels[0] = y_order[0]
-            labels[-1] = y_order[-1]
-            ax.set_yticks(y, labels, rotation=90)
+        labels = [""] * len(y)
+        labels[0] = y_order[0]
+        labels[-1] = y_order[-1]
+        ax.set_yticks(y, labels, rotation=90)
 
 
     ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
@@ -1026,13 +1024,10 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
             ax.set_xticks(x, labels, rotation=90)
         y = ax.get_yticks() 
-        if len(y_order) < 5: 
-            ax.set_yticks(y, y_order, rotation=90)
-        else:
-            labels = [""] * len(y)
-            labels[0] = y_order[0]
-            labels[-1] = y_order[-1]
-            ax.set_yticks(y, labels, rotation=90)
+        labels = [""] * len(y)
+        labels[0] = y_order[0]
+        labels[-1] = y_order[-1]
+        ax.set_yticks(y, labels, rotation=90)
 
     ### TODO: scatterplot with trendline for datetime feature relationship to target (dt plot 1)
     ####
@@ -1088,7 +1083,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         cats = sorted(df[label].dropna().unique().tolist())
         ring_width = 0.7 / len(cats)
         if inner_label == "" and outer_label =="":
-            inner_label, outer_label = cats[0], cats[-1]
+            outer_label, inner_label  = cats[0], cats[-1]
         for i, cat in enumerate(cats):
             value_counts = df[df[label] == cat][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
