@@ -114,6 +114,7 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
             cmap = mpl.colormaps[cmap_name].resampled(n_colors)
             return dict(zip(color_keys, [cmap(i / n_colors) for i in range(n_colors)]))
     else:
+        #if n_colors == 1: return sns.xkcd_palette(['steel']) 
         if n_colors <= len(MY_PALETTE):
             return MY_PALETTE[:n_colors]
         elif n_colors <= n_hues * n_sats:
@@ -126,20 +127,23 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
             cmap = mpl.colormaps[cmap_name].resampled(n_colors)
             return [cmap(i / n_colors) for i in range(n_colors)]       
 
-def summarize_data(df: pd.DataFrame, features: list)-> None:
+def summarize_data(df_: pd.DataFrame, features: list)-> None:
     """prints df summary and descriptive stats for selected features"""
-    df_data = df[df.target_mask.eq(True)][features]
+    try:
+        df = df_[df_.target_mask.eq(True)][features]
+    except:
+        df = df_[features]
     print("=" * 69)
-    print(df[features].info())
+    print(df_[features].info())
     print("=" * 69)
-    print(df_data.head(5).T) 
+    print(df.head(5).T) 
     print("=" * 69)
     try:
-        print(df_data.describe(include=['float', 'int']).T)
+        print(df.describe(include=['float', 'int']).T)
     except: pass
     try:
-        non_numeric_cols = df_data.select_dtypes(include=['object', 'category', 'bool']).columns
-        print(df_data[non_numeric_cols].describe().T)
+        non_numeric_cols = df.select_dtypes(include=['object', 'category', 'bool']).columns
+        print(df[non_numeric_cols].describe().T)
     except: pass
     
 def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_sep: str=","):
@@ -158,6 +162,7 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
     - path contains train.csv, test.csv, sample_submission.csv files
     - extra_data is optional "path + file name" of additional training data
         - extra_data contains same features and targets as train.csv
+            - may need to preprocess extra data
     requires: pandas
     """
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
@@ -175,6 +180,7 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
     df = pd.concat([df_train.assign(target_mask = True), df_test.assign(target_mask = False)], ignore_index=True)
     
     if extra_data != None:
+        #TODO: validate extra_data loading
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
         assert not missing, f"Extra Data missing columns: {missing}"
@@ -199,32 +205,29 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10):
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10, verbose: bool=True):
     """
     Adds target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
     -----------
-    if target is categorical (object or category dtype) or numeric with few unique values (<8)
-        - adds "label" for visualization support
-    if target is numeric with many unique values (>=8)
+    if target is numeric with more unique values than cuts
         - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
         - adds "label" using pd.cut to create equal-width bins of the target
     returns:
     - df with new label columns added
     """
-    if df[target].dtype == 'O' or df[target].dtype.name == 'category' or df[target].dtype == bool:
-        cats = sorted(df[target].unique().tolist())
-        df[target] = pd.Categorical(df[target], categories=cats, ordered=True)
-        df["label"] = df[target].astype('category')
-    elif df[target].nunique() < 8:
-        df["label"] = df[target].astype('category')
-    else:
+    if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
         df["qcut_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
         df["label"] = pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
         df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16').astype('category')
-        targets.append("qcut_label")
-    targets.append("label")
-    return df, targets
+        if "qcut_label" not in targets: targets.append("qcut_label")
+        if "label" not in targets: targets.append("label")
+        if verbose:
+            print(f'Added label and qcut_label as categorical targets')
+        return df, targets, "label"
+    else:
+        print(f'NOTE: target is label is {target}')
+        return df, targets, target
 
 ###Data cleaning and feature engineering functions
 def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, reset_index: bool=False, verbose: bool=True) -> pd.DataFrame:
@@ -234,9 +237,14 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
     - DataFrame with duplicate rows dropped from training data if drop=True.
     Requires: pandas
     """
-    mask = df.target_mask.eq(True)
-    train_df = df[mask]
-    test_df = df[~mask]
+    try:
+        mask = df.target_mask.eq(True)
+        train_df = df[mask]
+        test_df = df[~mask]
+    except:
+        print("Unable to separate test and training data")
+        print(f"{df[features].duplicated(keep=False).sum()} duplicates in DataFrame")
+        return
 
     # Find duplicates in training data
     duplicate_mask = train_df[features].duplicated(keep=False)
@@ -263,13 +271,15 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
         print("Dropping duplicated rows from training data set...")
         df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
         df = df.dropna(subset=features)
-        #TODO: cosider option to reset index after dropping duplicates from training data
+        #TODO: only reset index on the training dataset. can we do with df.loc?
         if reset_index: df = df.reset_index(drop=True)
-        train_df = df[mask]
+        train_df = df[mask] #reset train_df after dropping rows 
         duplicate_mask = train_df[features].duplicated(keep=False)
         overlap = pd.merge(train_df[features], test_df[features], how='inner')
         print(f"{duplicate_mask.sum()} duplicated rows remain in training data set.")
         print(f"{overlap.shape[0]} overlapping observations remain in the train and test data sets")
+        if reset_index: print("Index reset.")
+        else: print("Index NOT reset")
         print("=" * 69)
     return df
 
@@ -286,9 +296,9 @@ def plot_null_data(df:pd.DataFrame, features:list, verbose:bool=True)->list:
         plt.xlabel('Percentage')
         plt.show()
     def _plot_missing_heatmap(df, title="null value heatmap"):
-        sample = min(df.shape[0], 1000)
+        sample_size = min(df.shape[0], 1000)
         plt.figure(figsize=(8, 6))
-        sns.heatmap(df.sample(sample).isnull(), cbar=False, cmap='cividis')
+        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap='cividis')
         plt.title(title)
         plt.show()
         
@@ -313,7 +323,7 @@ def plot_null_data(df:pd.DataFrame, features:list, verbose:bool=True)->list:
             _plot_missing_heatmap(df)
         return df_display.index.tolist()
 
-def plot_feature_transforms(df: pd.DataFrame, feature: str)-> None:
+def plot_feature_transforms(df_: pd.DataFrame, feature: str)-> None:
     """
     Plots histogram distribution of feature variable with different transformations 
     Informs feature transformation feature engineering decisions 
@@ -322,22 +332,25 @@ def plot_feature_transforms(df: pd.DataFrame, feature: str)-> None:
     -----------
     requires: pandas, numpy, seaborn, matplotlib, scikit learn
     """
-    df_plot = df[df.target_mask.eq(True)][feature].to_frame()
-    X = df_plot[feature].values.reshape(-1,1)
-    df_plot['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
-    df_plot['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
+    try:
+        df = df_[df_.target_mask.eq(True)][feature].to_frame()
+    except:
+        df = df_[feature].to_frame()
+    X = df[feature].values.reshape(-1,1)
+    df['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
+    df['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
     df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
-    df_plot['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
-    df_plot['y_logTransform'] = np.log1p(X)
-    columns = list(df_plot.columns)
+    df['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
+    df['y_logTransform'] = np.log1p(X)
+    columns = list(df.columns)
     fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
     for i, col in enumerate(columns):
         plt.subplot(1, len(columns), i+1)
-        sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, legend = False)
+        sns.histplot(data=df, stat='percent', x=col, kde=False, bins=30, legend = False)
     plt.show()
 
 def get_target_transformer(df: pd.DataFrame, target: str, 
-                           targets: list, name: str="std",
+                           targets: list, name: str="enc",
                            TargetTransformer=skl.preprocessing.StandardScaler(), 
                            verbose: bool=True
                            ):
@@ -355,11 +368,16 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
     y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
     TargetTransformer.fit(y)
-    y = df[target].values.reshape(-1,1)
-    df[f"{t}_{name}"] = TargetTransformer.transform(y)
+    try:
+        y = df[target].values.reshape(-1,1)
+        df[f"{t}_{name}"] = TargetTransformer.transform(y)
+    except:  #TODO validate behavior
+        y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
+        df[df.target_mask.eq(True)][f"{t}_{name}"] = TargetTransformer.transform(y)
+        df[f"{t}_{name}"].fillna(-1, inplace=True)
     targets.append(f"{t}_{name}")
     if verbose:
-        print(f"Added transformed target '{t}_{name}' to DataFrame with {len(df[df.target_mask.eq(True)][f'{t}_{name}'].unique())} unique values")
+        print(f"Added transformed target '{t}_{name}' to DataFrame")
         plot_target_eda(df, f"{t}_{name}", title=f"Distribution of Transformed Target '{t}_{name}'")
     return df, targets, TargetTransformer
 
@@ -914,7 +932,16 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.set_xticks(x, labels, rotation=90)
         ax.set_xlabel("")
     
-    ### TODO: add distribution plot for datetime feature (dt plot 0)
+    ### TODO: validate distribution plot for datetime feature (dt plot 0)
+    def _plot_dt_distribution(ax, feature, target):
+        df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target].count().rename(f"count_w").reset_index()
+        sns.lineplot(data=df_w, x=feature, y=f"count_w", ax=ax)
+        df_m = df.groupby([pd.Grouper(key=f"{feature}", freq="MS")])[target].count().rename(f"count_m").reset_index()
+        sns.lineplot(data=df_m, x=feature, y=f"count_m", ax=ax)
+        ax.set_title(f'{feature} distribution')
+        ax.set_yticks([])
+        ax.set_ylabel("Count")
+        ax.set_xlabel("")
 
     ### scatterplot with trendline for numerical feature relationship to numeric target (num plot 1N)
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
@@ -1026,36 +1053,23 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         labels[-1] = y_order[-1]
         ax.set_yticks(y, labels, rotation=90)
 
-    ### TODO: scatterplot with trendline for datetime feature relationship to target (dt plot 1)
-    ####
-    # TODO: consider datetime feature plots
-    ### Plot  vs date-time
-    #def datetime_plot(df_list, measure, title, target, datetime_feature = 'date'):
-    #    print("=" * 69)
-    #    fig, axs = plt.subplots(nrows=1, ncols=1, sharex = True, sharey = True, figsize=(12, 3))
-    #    plt.subplot(1, 1, 1)
-    #    for df in df_list:
-    #        sns.lineplot(data=df, x=f"{datetime_feature}", y=f"{measure}{target}")
-    #    sns.despine()
-    #    plt.suptitle(t = f'seasonal {title}', fontsize = 10, x = 0.9, ha ='right') 
-    #    plt.show()
-    #    return
-    #
-    #def seasonal_count_plot(df, datetime_feature = 'date', target = target):
-    #    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].count().rename(f"count_{target}").reset_index()
-    #    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].count().rename(f"count_{target}").reset_index()
-    #    weekly_df[f'daily_{target}'] = weekly_df[f'count_{target}'] / 7
-    #    monthly_df[f'daily_{target}'] = monthly_df[f'count_{target}'] / 30
-    #    datetime_plot([weekly_df, monthly_df], "daily_", f"sales count by week/month", target = target)
-    #    return
-    #    
-    #def seasonal_mean_plot(df, datetime_feature = 'date', target = target):
-    #    weekly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="W")])[target].mean().rename(f"mean_{target}").reset_index()
-    #    monthly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="MS")])[target].mean().rename(f"mean_{target}").reset_index()
-    #    yearly_df = df.groupby([pd.Grouper(key=f"{datetime_feature}", freq="YS")])[target].mean().rename(f"mean_{target}").reset_index()
-    #    datetime_plot([weekly_df, monthly_df, yearly_df], "mean_", f"{target} by week/month/year", target = target)
-    #    return
+        ### TODO: validate datetime feature relationship to target (dt plot 1N)
+    def _plot_dt_relationship(ax, feature, y_min=0, y_max=100):
+        df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
+        sns.scatterplot(data=df_sampled, x=feature, y=target, ax=ax, zorder=0, alpha=0.5)
+        df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target].mean().rename(f"mean_w").reset_index()
+        sns.lineplot(data=df_w, x=feature, y=f"mean_w", ax=ax)
+        df_m = df.groupby([pd.Grouper(key=f"{feature}", freq="MS")])[target].mean().rename(f"mean_m").reset_index()
+        sns.lineplot(data=df_m, x=feature, y=f"mean_m", ax=ax)
+        ax.set_title(f'{target} mean vs {feature}')
+        ax.set_ylabel("")
+        ax.set_xlabel("")
+        ax.set_ylim(y_min, y_max)
 
+    ### TODO: add datetime feature relationship to categorical target (dt plot 1C)
+    def _plot_dt_tgt_cat_relationship(ax, feature, y_order):
+        #TODO what does this look like?
+        pass
 
     ### boxplot shows outliers and limits by label  (num plot 2)
     def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):
@@ -1066,7 +1080,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = cats)
-            print(f"{feature} Boxplot sequence {cats}") #DEBUG
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
@@ -1080,7 +1093,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         if label == None: return
         cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
         ring_width = 0.7 / len(cats)
-        print(f"{feature} ringplot sequence {cats}") #DEBUG
         if inner_label == "" and outer_label =="":
             outer_label, inner_label  = cats[0], cats[-1]
         for i, cat in enumerate(cats):
@@ -1099,6 +1111,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
     ### TODO: what should this plot look like for datetime features (dt plot 2)
+    def _plot_dt_lagplot(ax, feature, lag, label):
+        #TODO what does this look like? maybe a lag plot?
+        pass
 
     ### limit number of features plotted/size of plot
     f = min(20, len(features))
@@ -1112,7 +1127,8 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
 
     ### determine nature of target
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
-               df[target].dtype == "category")
+               df[target].dtype == "category" or df[target].nunique() < 4)
+    print(f"Target cat is {tgt_cat}") #DEBUG
     if tgt_cat:
         df[target] = df[target].astype(str).astype('category')
         y_order = sorted(df[target].unique().tolist(), reverse=True)
@@ -1125,9 +1141,27 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
         ### for each feature determine applicable plot selection
-        is_cat = (df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or (df[feature].dtype=='int' and df[feature].nunique() < 10))
-#        is_dt = 
+        is_cat = (df[feature].dtype == "O" or 
+                  df[feature].dtype == bool or 
+                  df[feature].dtype == "category" or 
+                  pd.api.types.is_datetime64_any_dtype(df[feature]) or
+                  (df[feature].dtype=='int' and df[feature].nunique() < 4))
         if is_cat:
+            try:
+                pd.to_datetime(df[feature])
+                is_dt = True
+            except:
+                is_dt = False
+        if is_dt:
+            #distribution plot (0)
+            _plot_dt_distribution(ax0, feature, target)
+            #target relationship plot(1)
+            if tgt_cat: _plot_dt_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, y_order)
+            else: _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
+            #target distribution by feature plot (2)
+            if label != None:
+                _plot_dt_lagplot(fig.add_subplot(gs[i, 2]), feature, lag, label)
+        elif is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
             df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
             color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
@@ -1140,7 +1174,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             if label != None:
                 _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
                                 inner_label=low_label, outer_label=high_label)
-#        elif is_dt:
         else:
             #distribution plot (0)
             _plot_num_distribution(ax0, feature)
