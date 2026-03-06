@@ -205,7 +205,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     Useful for visualizing numeric targets in categorical "bins"
     -----------
     if target is categorical (object or category dtype)
-        - adds "label" reversing target for visualization
+        - adds "label" for visualization
     if target is bool or numeric with few unique values (<8)
         - adds "label" reversing the order of the target values (for better visualization)
     if target is numeric with many unique values (>=8)
@@ -215,20 +215,15 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     - df with new label columns added
     """
     if df[target].dtype == 'O' or df[target].dtype.name == 'category':
-        try:
-            keys = sorted(df[df.target_mask.eq(True)][target].unique().tolist())
-            vals = sorted(df[df.target_mask.eq(True)][target].unique().tolist(), reverse=True)
-        except:
-            keys = sorted(df[target].unique().tolist())
-            vals = sorted(df[target].unique().tolist(), reverse=True)
-        df[target] = pd.Categorical(df[target], categories=keys, ordered=True)
-        df["label"] = df[target].replace(dict(zip(keys, vals)), inplace=False)
+        cats = sorted(df[target].unique().tolist())
+        df[target] = pd.Categorical(df[target], categories=cats, ordered=True)
+        df["label"] = df[target]
     elif df[target].nunique() < 8:
-        df["label"] = df[target].max() - df[target]
+        df["label"] = df[target].astype('category')
     else:
-        df["qcut_label"] = cuts - pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df["label"] = cuts - pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16')
+        df["qcut_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df["label"] = pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16').astype('category')
         targets.append("qcut_label")
     targets.append("label")
     return df, targets
@@ -1070,7 +1065,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             sns.boxplot(x = df[feature], ax=ax)
             ax.set_title(f'{feature} outliers')
         else:
-            cats = sorted(df[label].dropna().unique().tolist())
+            cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = cats)
             ax.set_title(f'{feature} by target cut')
@@ -1084,7 +1079,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     ### donut shows variation in target by category  (cat plot 2)
     def _plot_cat_donut(ax, feature, label, order, color_map, inner_label="", outer_label=""):
         if label == None: return
-        cats = sorted(df[label].dropna().unique().tolist())
+        cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
         ring_width = 0.7 / len(cats)
         if inner_label == "" and outer_label =="":
             outer_label, inner_label  = cats[0], cats[-1]
@@ -1119,7 +1114,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
                df[target].dtype == "category" or df[target].nunique() < 10)
     if tgt_cat:
-        y_order = sorted(df[target].unique().tolist())
+        y_order = sorted(df[target].unique().tolist(), reverse=True)
         df[target] = pd.Categorical(df[target], categories=y_order, ordered=True)
     else:
         if not y_min: y_min = df[target].min()
