@@ -205,7 +205,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     Useful for visualizing numeric targets in categorical "bins"
     -----------
     if target is categorical (object or category dtype)
-        - adds "label" same as target for visualization
+        - adds "label" reversing target for visualization
     if target is bool or numeric with few unique values (<8)
         - adds "label" reversing the order of the target values (for better visualization)
     if target is numeric with many unique values (>=8)
@@ -215,17 +215,18 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     - df with new label columns added
     """
     if df[target].dtype == 'O' or df[target].dtype.name == 'category':
-        df["label"] = df[target]
-        print("Target is not Numeric\nLabel is target")
-        #targets.append("label")
+        keys = sorted(df[target].unique().tolist())
+        vals = sorted(df[target].unique().tolist(), reverse=True)
+        df[target] = pd.Categorical(df[target], categories=keys, ordered=True)
+        df["label"] = df[target].replace(dict(zip(keys, vals)), inplace=False)
     elif df[target].nunique() < 8:
         df["label"] = df[target].max() - df[target]
-        targets.append("label")
     else:
-        df["qcut_label"] = cuts  - pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df["label"] = cuts  - pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df["qcut_label"] = cuts - pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df["label"] = cuts - pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
         df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16')
-        targets.extend(["qcut_label", "label"])
+        targets.append("qcut_label")
+    targets.append("label")
     return df, targets
 
 ###Data cleaning and feature engineering functions
