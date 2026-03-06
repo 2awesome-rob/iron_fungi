@@ -204,20 +204,18 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     Adds target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
     -----------
-    if target is categorical (object or category dtype)
-        - adds "label" for visualization
-    if target is bool or numeric with few unique values (<8)
-        - adds "label" reversing the order of the target values (for better visualization)
+    if target is categorical (object or category dtype) or numeric with few unique values (<8)
+        - adds "label" for visualization support
     if target is numeric with many unique values (>=8)
         - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
         - adds "label" using pd.cut to create equal-width bins of the target
     returns:
     - df with new label columns added
     """
-    if df[target].dtype == 'O' or df[target].dtype.name == 'category':
+    if df[target].dtype == 'O' or df[target].dtype.name == 'category' or df[target].dtype == bool:
         cats = sorted(df[target].unique().tolist())
         df[target] = pd.Categorical(df[target], categories=cats, ordered=True)
-        df["label"] = df[target]
+        df["label"] = df[target].astype('category')
     elif df[target].nunique() < 8:
         df["label"] = df[target].astype('category')
     else:
@@ -1065,13 +1063,13 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             sns.boxplot(x = df[feature], ax=ax)
             ax.set_title(f'{feature} outliers')
         else:
-            cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
+            cats = sorted(df[label].dropna().unique().tolist())
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = cats)
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
-                top_label, bottom_label = cats[0], cats[-1]
+                top_label, bottom_label = cats[-1], cats[0]
             ax.text(df[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color = 'black')
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
