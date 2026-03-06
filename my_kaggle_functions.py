@@ -1066,6 +1066,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             cats = sorted(df[label].dropna().unique().tolist())
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = cats)
+            print(f"{feature} Boxplot sequence {cats}") #DEBUG
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
@@ -1079,6 +1080,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         if label == None: return
         cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
         ring_width = 0.7 / len(cats)
+        print(f"{feature} ringplot sequence {cats}") #DEBUG
         if inner_label == "" and outer_label =="":
             outer_label, inner_label  = cats[0], cats[-1]
         for i, cat in enumerate(cats):
@@ -1110,7 +1112,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
 
     ### determine nature of target
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
-               df[target].dtype == "category" or df[target].nunique() < 10)
+               df[target].dtype == "category")
     if tgt_cat:
         y_order = sorted(df[target].unique().tolist(), reverse=True)
         df[target] = pd.Categorical(df[target], categories=y_order, ordered=True)
