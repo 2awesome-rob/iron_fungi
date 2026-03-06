@@ -1063,14 +1063,14 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             sns.boxplot(x = df[feature], ax=ax)
             ax.set_title(f'{feature} outliers')
         else:
-            cats = sorted(df[label].dropna().unique().tolist())
+            cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
             sns.boxplot(x = df[feature], palette=MY_PALETTE , ax=ax, legend = False, gap = .1,
                         hue = df[label], hue_order = cats)
             print(f"{feature} Boxplot sequence {cats}") #DEBUG
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
-                top_label, bottom_label = cats[-1], cats[0]
+                top_label, bottom_label = cats[0], cats[-1]
             ax.text(df[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color = 'black')
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
