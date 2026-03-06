@@ -215,8 +215,12 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10
     - df with new label columns added
     """
     if df[target].dtype == 'O' or df[target].dtype.name == 'category':
-        keys = sorted(df[target].unique().tolist())
-        vals = sorted(df[target].unique().tolist(), reverse=True)
+        try:
+            keys = sorted(df[df.target_mask.eq(True)][target].unique().tolist())
+            vals = sorted(df[df.target_mask.eq(True)][target].unique().tolist(), reverse=True)
+        except:
+            keys = sorted(df[target].unique().tolist())
+            vals = sorted(df[target].unique().tolist(), reverse=True)
         df[target] = pd.Categorical(df[target], categories=keys, ordered=True)
         df["label"] = df[target].replace(dict(zip(keys, vals)), inplace=False)
     elif df[target].nunique() < 8:
