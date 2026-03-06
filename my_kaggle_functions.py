@@ -1141,15 +1141,16 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
         ### for each feature determine applicable plot selection
+        if df[feature].dtype == 'O':
+            try:
+                df[feature] = pd.to_datetime(df[feature])
+            except Exception:
+                pass
         is_cat = (df[feature].dtype == "O" or 
                   df[feature].dtype == bool or 
                   df[feature].dtype == "category" or 
                   (df[feature].dtype=='int' and df[feature].nunique() < 4))
-        try:
-            pd.to_datetime(df[feature])
-            is_dt = True
-        except:
-            is_dt = False
+        is_dt = True if pd.api.types.is_datetime64_any_dtype(df[feature]) else False
         if is_dt:
             #distribution plot (0)
             _plot_dt_distribution(ax0, feature, target)
