@@ -947,17 +947,16 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
         def _annotate_bins(indices, symbol, color):
-            fontsize=12 if len(indices) < 25 else 10
             for idx in indices:
                 iy, ix = np.unravel_index(idx, (ny, nx))
                 x_center = (x_edges[ix] + x_edges[ix+1]) / 2
                 y_center = (y_edges[iy] + y_edges[iy+1]) / 2
                 ax.text(float(x_center), float(y_center), symbol,
                         ha="center", va="center",
-                        color=color, fontsize=fontsize, zorder=2)
+                        color=color, fontsize=10, zorder=2)
 
         _annotate_bins(top_idx, "●", 'xkcd:rust') #⊤
-        _annotate_bins(bottom_idx, "-", 'xkcd:rust') #⊥
+        _annotate_bins(bottom_idx, "⊥", 'xkcd:rust') #⊥
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
@@ -1126,6 +1125,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         row_anchors.append(ax0)
         ### for each feature determine applicable plot selection
         is_cat = (df[feature].dtype == "O" or df[feature].dtype == bool or df[feature].dtype == "category" or (df[feature].dtype=='int' and df[feature].nunique() < 10))
+#        is_dt = 
         if is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
             df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
@@ -1139,6 +1139,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             if label != None:
                 _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
                                 inner_label=low_label, outer_label=high_label)
+#        elif is_dt:
         else:
             #distribution plot (0)
             _plot_num_distribution(ax0, feature)
