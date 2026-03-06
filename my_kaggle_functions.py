@@ -1144,14 +1144,12 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         is_cat = (df[feature].dtype == "O" or 
                   df[feature].dtype == bool or 
                   df[feature].dtype == "category" or 
-                  pd.api.types.is_datetime64_any_dtype(df[feature]) or
                   (df[feature].dtype=='int' and df[feature].nunique() < 4))
-        if is_cat:
-            try:
-                pd.to_datetime(df[feature])
-                is_dt = True
-            except:
-                is_dt = False
+        try:
+            pd.to_datetime(df[feature])
+            is_dt = True
+        except:
+            is_dt = False
         if is_dt:
             #distribution plot (0)
             _plot_dt_distribution(ax0, feature, target)
