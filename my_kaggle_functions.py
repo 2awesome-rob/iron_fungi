@@ -1071,7 +1071,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.set_title(f'{feature} by target cut')
             ax.set_xlabel("")
             if top_label == "" and bottom_label =="":
-                top_label, bottom_label = cats[0], cats[-1]
+                top_label, bottom_label = cats[-1], cats[0]
             ax.text(df[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color = 'black')
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
@@ -1082,7 +1082,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
         ring_width = 0.7 / len(cats)
         if inner_label == "" and outer_label =="":
-            outer_label, inner_label  = cats[0], cats[-1]
+            outer_label, inner_label  = cats[-1], cats[0]
         for i, cat in enumerate(cats):
             value_counts = df[df[label] == cat][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
