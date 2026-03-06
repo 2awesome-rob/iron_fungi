@@ -1114,6 +1114,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
                df[target].dtype == "category")
     if tgt_cat:
+        df[target] = df[target].astype(str).astype('category')
         y_order = sorted(df[target].unique().tolist(), reverse=True)
         df[target] = pd.Categorical(df[target], categories=y_order, ordered=True)
     else:
