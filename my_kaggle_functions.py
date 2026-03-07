@@ -339,7 +339,7 @@ def plot_feature_transforms(df_: pd.DataFrame, feature: str)-> None:
     X = df[feature].values.reshape(-1,1)
     df['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
     df['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
-    df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
+    df['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
     df['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
     df['y_logTransform'] = np.log1p(X)
     columns = list(df.columns)
@@ -534,9 +534,12 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
     for feature in features:
         if df[feature].nunique() < 16:
             df[f'{feature}_on_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
-            X = df[f'{feature}_on_{pivot}'].values
-            df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
-            df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('category')
+            if df[f'{feature}_on_{pivot}'].nunique() < 256:
+                X = df[f'{feature}_on_{pivot}'].values
+                df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
+                df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('category')
+            else:
+                print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
