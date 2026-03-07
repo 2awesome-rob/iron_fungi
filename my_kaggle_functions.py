@@ -205,7 +205,7 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=10, verbose: bool=True):
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=8, verbose: bool=True):
     """
     Adds target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
@@ -910,7 +910,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
         bins = min(50, df[feature].nunique())
-        sns.histplot(df[feature], ax=ax, bins = 50, discrete=True)
+        sns.histplot(df[feature], ax=ax, bins = bins, discrete=True)
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
@@ -1068,8 +1068,14 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
 
     ### TODO: add datetime feature relationship to categorical target (dt plot 1C)
     def _plot_dt_tgt_cat_relationship(ax, feature, y_order):
-        #TODO what does this look like?
-        pass
+        #TODO validate this - is this the right plot?
+        for t in y_order:
+            df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target==t].count().rename(f"count_{t}_w").reset_index()
+            sns.lineplot(data=df_w, x=feature, y=f"count_{t}_w", ax=ax)
+        ax.set_title(f'Count {target} values vs {feature}')
+        ax.set_ylabel("")
+        ax.set_xlabel("")
+        
 
     ### boxplot shows outliers and limits by label  (num plot 2)
     def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):
@@ -1128,7 +1134,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     ### determine nature of target
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
                df[target].dtype == "category" or df[target].nunique() < 4)
-    print(f"Target cat is {tgt_cat}") #DEBUG
     if tgt_cat:
         df[target] = df[target].astype(str).astype('category')
         y_order = sorted(df[target].unique().tolist(), reverse=True)
@@ -1528,7 +1533,7 @@ def get_feature_importance(X_train: pd.DataFrame, X_val: pd.DataFrame,
         print(f"Zero importance features: {(ds == 0).sum()} of {len(ds.index)}")
     return ds
 
-def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True):
+def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, task:str='regression', verbose: bool=True):
     """
     gets feature mutual importance
     -----------
@@ -1540,7 +1545,10 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True
         sample_size = 10000
         X = X.sample(n=sample_size, random_state=69)
         y = y.loc[X.index]
-    mi_scores = skl.feature_selection.mutual_info_regression(X, y)
+    if task.startswith("regress"):
+        mi_scores = skl.feature_selection.mutual_info_regression(X, y)
+    else:
+        mi_scores = skl.feature_selection.mutual_info_classif(X, y)
     ds = pd.Series(mi_scores, name="information", index=X.columns)
     ds.sort_values(ascending=False, inplace=True)
     print("=" * 69)
@@ -1551,10 +1559,10 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, verbose: bool=True
         elif len(ds) > 20: features_to_show = 5
         else: features_to_show = 3
         print("=" * 69)
-        print(f"  Top Features:")
+        print(f"  Top {task} Features:")
         print(ds.head(features_to_show))
         print("=" * 69)
-        print(f"  Bottom Features:")
+        print(f"  Bottom {task} Features:")
         print("=" * 69)
         print(ds.tail(features_to_show))
         print("=" * 69)
