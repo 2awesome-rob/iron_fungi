@@ -1360,10 +1360,10 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
             ax.hist(y_p, bins=min(50,len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
         else: 
             order = sorted(np.unique(y_v))
-            s = pd.Series(y_v)
+            s = pd.Series(y_v.ravel())
             counts = s.value_counts().reindex(order, fill_value=0)
             ax.bar(counts.index, counts.values, width=0.9, alighn='center', color='xkcd:silver', alpha=0.8)
-            s = pd.Series(y_p)
+            s = pd.Series(y_p.ravel())
             counts = s.value_counts().reindex(order, fill_value=0)
             ax.bar(counts.index, counts.values, width=0.9, alighn='right', color='xkcd:ocean blue', alpha=0.9)
         ax.set_ylabel("Probability Density")
