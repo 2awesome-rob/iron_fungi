@@ -359,26 +359,26 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     -----------
     returns:
     - df with transformed target
-    - fitted TargetTransformer to support inverse transformation of predictions
     - updated list of targets with new transformed target column name added
+    - fitted TargetTransformer to support inverse transformation of predictions
     -----------
     requires: 
     pandas, scikit learn
     """
     t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
-    y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
-    TargetTransformer.fit(y)
-    try:
-        y = df[target].values.reshape(-1,1)
-        df[f"{t}_{name}"] = TargetTransformer.transform(y)
-    except:  #TODO validate behavior
-        y = df[df.target_mask.eq(True)][target].values.reshape(-1,1)
-        df[df.target_mask.eq(True)][f"{t}_{name}"] = TargetTransformer.transform(y)
-        df[f"{t}_{name}"].fillna(-1, inplace=True)
-    targets.append(f"{t}_{name}")
+    enc_tgt = f"{t}_{name}"
+    df[enc_tgt] = -1
+
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    y_fit = df.loc[mask, target].values.reshape(-1, 1)
+    y_trans = TargetTransformer.fit_transform(y_fit).ravel()
+    df.loc[mask, enc_tgt] = y_trans
+
+    targets = targets + [enc_tgt]
+
     if verbose:
         print(f"Added transformed target '{t}_{name}' to DataFrame")
-        plot_target_eda(df, f"{t}_{name}", title=f"Distribution of Transformed Target '{t}_{name}'")
+        plot_target_eda(df, enc_tgt, title=f"Distribution of Transformed Target '{t}_{name}'")
     return df, targets, TargetTransformer
 
 def clean_categoricals(df: pd.DataFrame, features: list, 
@@ -1302,6 +1302,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     
     base_model.fit(X_t[numeric_features], y_t)
     
+    #TODO validate reshape with multiclass proba
     if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
@@ -1318,8 +1319,9 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         metric = 'rmse' if task=="regression" else task.split("_")[1]
         ax.set_title(f"Trained Model {calculate_score(y_v, y_p, metric = metric):.4f} vs Ridge {calculate_score(y_v, y_base, metric = metric):.4f} {metric.upper()}")
 
-    def plot_classification_cm(ax, predictions=y_p, title = "Trained"):
-        skl.metrics.ConfusionMatrixDisplay.from_predictions(y_v, predictions, cmap='bone_r', 
+    def plot_classification_cm(ax, predictions=y_p, title = "Trained", show_values=True):
+        cmap='bone_r' if len(np.unique(predictions)) < 4 else 'cividis'
+        skl.metrics.ConfusionMatrixDisplay.from_predictions(y_v, predictions, cmap=cmap, include_values=show_values,
                                                             normalize='all', colorbar=False, ax=ax)
         ax.invert_yaxis()
         ax.set_title(f"{title} Model Accuracy {100*calculate_score(y_v, predictions, metric = 'accuracy'):.1f}%")
@@ -1330,10 +1332,11 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         ax.set_title("ROC Curve")
 
     def plot_distribution(ax):
-        ax.hist(y_v, bins=min(50,2+len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
-        ax.hist(y_p, bins=min(50,2+len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
+        ax.hist(y_v, bins=min(50,1+len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
+        ax.hist(y_p, bins=min(50,1+len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
         ax.set_title("Prediction Distribution vs Training Distribution")
         ax.set_yticks([])
+        ax.set_xticks([])
         ax.set_ylabel("Probability Density")
 
     def plot_residuals(ax):
@@ -1355,7 +1358,8 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         plot_classification_cm(fig.add_subplot(gs[:, :2]))
         plot_distribution(fig.add_subplot(gs[0, 2]))
         plot_classification_cm(fig.add_subplot(gs[1, 2]), 
-                               predictions = y_base,
+                               predictions = y_base, 
+                               show_values=True if len(np.unique(y_base)) < 4 else False, 
                                title = "GaussianNB")
     
     elif task.startswith("probability"):
