@@ -795,14 +795,19 @@ def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4,
         print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
     return df, df_outlier
 
-def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=20, name:str="")-> pd.DataFrame:
+def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5, drop: bool=False, name:str="")-> pd.DataFrame:
     """
     Uses skl.neighbors model to identify outliers across given features
     returns df with new feature identifying outliers
     """
     outliermodel = skl.neighbors.LocalOutlierFactor(n_neighbors=n_neighbors)
     df[f'outlier_{name}'] = outliermodel.fit_predict(df[features])
-    print("=" * 69, f"\n{100 * df.query('outlier == -1').shape[0] / df.shape[0] :.2f}% of samples identified as outliers")
+    print("=" * 69, f"\n{100 * df.query(f'outlier_{name} == -1').shape[0] / df.shape[0] :.2f}% of samples identified as outliers")
+    if drop is True:
+        outlier_mask = df_train[df_train[f'outlier_{name}'] == -1]
+        df.drop(outlier_mask.index, inplace=True)
+        df.drop(f'outlier_{name}', inplace=True, axis=1)
+        print(f"Removed {outlier_mask.shape[0]} outliers from original DataFrame.")
     return df
 
 def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, verbose:bool=True, debug:bool=False)->pd.DataFrame:
@@ -1331,13 +1336,16 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         skl.metrics.RocCurveDisplay.from_predictions(y_v, y_base, name="GaussianNB", ax=ax)
         ax.set_title("ROC Curve")
 
-    def plot_distribution(ax):
-        ax.hist(y_v, bins=min(50,1+len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
-        ax.hist(y_p, bins=min(50,1+len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
-        ax.set_title("Prediction Distribution vs Training Distribution")
-        ax.set_yticks([])
-        ax.set_xticks([])
+    def plot_distribution(ax, hist=True):
+        if hist == True:
+            ax.hist(y_v, bins=min(50,len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
+            ax.hist(y_p, bins=min(50,len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
+        else: 
+            sns.countplot(data=y_v, color='xkcd:silver', alpha=0.8, ax=ax)
+            sns.countplot(data=y_p, color='xkcd:ocean blue', alpha=0.9, ax=ax)
         ax.set_ylabel("Probability Density")
+        ax.set_title("Prediction vs Training Distribution")
+        ax.set_yticks([])
 
     def plot_residuals(ax):
         residuals = y_p - y_v
@@ -1356,10 +1364,10 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
             
     elif task.startswith("classification"):
         plot_classification_cm(fig.add_subplot(gs[:, :2]))
-        plot_distribution(fig.add_subplot(gs[0, 2]))
+        plot_distribution(fig.add_subplot(gs[0, 2]), hist=False)
         plot_classification_cm(fig.add_subplot(gs[1, 2]), 
                                predictions = y_base, 
-                               show_values=True if len(np.unique(y_base)) < 4 else False, 
+                               show_values=True if len(np.unique(y_v)) < 4 else False, 
                                title = "GaussianNB")
     
     elif task.startswith("probability"):
