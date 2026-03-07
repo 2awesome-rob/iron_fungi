@@ -1365,7 +1365,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
             ax.bar(counts.index, counts.values, width=0.9, align='center', color='xkcd:silver', alpha=0.8)
             s = pd.Series(y_p.ravel())
             counts = s.value_counts().reindex(order, fill_value=0)
-            ax.bar(counts.index, counts.values, width=0.9, align='right', color='xkcd:ocean blue', alpha=0.9)
+            ax.bar(counts.index, counts.values, width=0.85, align='center', color='xkcd:ocean blue', alpha=0.9)
         ax.set_ylabel("Probability Density")
         ax.set_title("Prediction vs Training Distribution")
         ax.set_yticks([])
