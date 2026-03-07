@@ -476,7 +476,9 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
             df[feature] = FeatureTransformer.fit_transform(X)
     return df    
 
-def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0], transform: bool=True) -> pd.DataFrame:
+def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0], 
+                             self_transform: bool=False,
+                             transform: bool=True) -> pd.DataFrame:
     """
     adds interaction features to df 
     ----------
@@ -487,6 +489,17 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     requires: pandas, scikit learn, itertools, tqdm
     """
     ##Add kitchen sink feature inteactions 
+    if self_transform:
+        for feature in features:
+            df[f'{feature}_sq'] = df[feature] ** 2
+            df[f'{feature}_cube'] = df[feature] ** 3
+            if np.min(df[feature]) >= 0:
+                df[f'{feature}_log'] = np.log1p(df[feature])  
+                df[f'{feature}_sqrt'] = np.sqrt(df[feature])
+        if transform:
+            new_features = [f for f in df.columns if ('_log' in f or '_sqrt' in f or '_cube' in f or '_sq' in f)]
+            df = get_transformed_features(df, new_features, skl.preprocessing.MinMaxScaler(), winsorize=winsorize)
+
     for combination in tqdm(itertools.combinations(features, 2), desc="Creating interaction features", unit="pairs"):
         df["*".join(combination)] = df[list(combination)].prod(axis=1)
     new_features = ["*".join(c) for c in itertools.combinations(features, 2)]
@@ -802,7 +815,12 @@ def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5
     """
     outliermodel = skl.neighbors.LocalOutlierFactor(n_neighbors=n_neighbors)
     df[f'outlier_{name}'] = outliermodel.fit_predict(df[features])
-    print("=" * 69, f"\n{100 * df.query(f'outlier_{name} == -1').shape[0] / df.shape[0] :.2f}% of samples identified as outliers")
+    df[f'outlier_{name}'] = df[f'outlier_{name}'].astype('category')
+    outlier_count = df.query(f'outlier_{name} == -1').shape[0]
+    print("=" * 69)
+    print(f"\n{outlier_count} ({100 * outlier_count / df.shape[0] :.2f}%) of samples identified as outliers")
+    if outlier_count == 0:
+        df.drop(f'outlier_{name}', inplace=True, axis=1)
     if drop is True:
         outlier_mask = df_train[df_train[f'outlier_{name}'] == -1]
         df.drop(outlier_mask.index, inplace=True)
@@ -1341,8 +1359,13 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
             ax.hist(y_v, bins=min(50,len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
             ax.hist(y_p, bins=min(50,len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
         else: 
-            sns.countplot(data=y_v, color='xkcd:silver', alpha=0.8, ax=ax)
-            sns.countplot(data=y_p, color='xkcd:ocean blue', alpha=0.9, ax=ax)
+            order = sorted(np.unique(y_v))
+            s = pd.Series(y_v)
+            counts = s.value_counts().reindex(order, fill_value=0)
+            ax.bar(counts.index, counts.values, width=0.9, alighn='center', color='xkcd:silver', alpha=0.8)
+            s = pd.Series(y_p)
+            counts = s.value_counts().reindex(order, fill_value=0)
+            ax.bar(counts.index, counts.values, width=0.9, alighn='right', color='xkcd:ocean blue', alpha=0.9)
         ax.set_ylabel("Probability Density")
         ax.set_title("Prediction vs Training Distribution")
         ax.set_yticks([])
