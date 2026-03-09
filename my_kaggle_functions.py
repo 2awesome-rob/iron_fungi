@@ -373,7 +373,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     y_trans = TargetTransformer.fit_transform(y_fit).ravel()
     df.loc[mask, enc_tgt] = y_trans
     if df[target].dtype == "O" or df[target].dtype == "category":
-        df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int)
+        df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int, prefix=t)
         new_cols = df_dummies.columns.tolist()
         df = df.join(df_dummies)
         df[new_cols].fillna(-1, inplace=True)
@@ -909,7 +909,7 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
                      kde = True)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
-        y_order = sorted(df_plot[target].unique().tolist(), reverse=True)
+        y_order = sorted(df_plot[target].unique().tolist(), reverse=False)
         df_plot[target] = pd.Categorical(df_plot[target], categories=y_order, ordered=True)
         sns.countplot(data=df_plot, x=target)
     plt.title(title)
