@@ -376,7 +376,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     if df[target].dtype == "O" or df[target].dtype == "category":
         df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int)
         new_cols = df_dummies.columns.tolist()
-        df.merge(df_dummies)
+        df.merge(df_dummies, on=df.index)
         df[new_cols].fillna(-1, inplace=True)
         targets = targets + new_cols
         if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
