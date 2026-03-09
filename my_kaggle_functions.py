@@ -365,15 +365,21 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     requires: 
     pandas, scikit learn
     """
+    new_cols = None
     t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
     enc_tgt = f"{t}_{name}"
     df[enc_tgt] = -1
-
     mask = df.get("target_mask", pd.Series(True, index=df.index))
     y_fit = df.loc[mask, target].values.reshape(-1, 1)
     y_trans = TargetTransformer.fit_transform(y_fit).ravel()
     df.loc[mask, enc_tgt] = y_trans
-
+    if df[target].dtype == "O" or df[target].dtype == "category":
+        df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int)
+        new_cols = df_dummies.columns.tolist()
+        df.merge(df_dummies)
+        df[new_cols].fillna(-1, inplace=True)
+        targets = targets + new_cols
+        if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
     targets = targets + [enc_tgt]
 
     if verbose:
