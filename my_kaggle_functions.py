@@ -365,7 +365,6 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     requires: 
     pandas, scikit learn
     """
-    new_cols = None
     t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
     enc_tgt = f"{t}_{name}"
     df[enc_tgt] = -1
@@ -376,7 +375,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     if df[target].dtype == "O" or df[target].dtype == "category":
         df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int)
         new_cols = df_dummies.columns.tolist()
-        df.merge(df_dummies, on=df.index)
+        df = df.join(df_dummies)
         df[new_cols].fillna(-1, inplace=True)
         targets = targets + new_cols
         if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
@@ -909,6 +908,9 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
                      bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
                      kde = True)
     else:
+        df_plot[target] = df_plot[target].astype(str).astype('category')
+        y_order = sorted(df_plot[target].unique().tolist(), reverse=True)
+        df_plot[target] = pd.Categorical(df_plot[target], categories=y_order, ordered=True)
         sns.countplot(data=df_plot, x=target)
     plt.title(title)
     plt.yticks([])
