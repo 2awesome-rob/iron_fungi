@@ -913,7 +913,7 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
         values = [f for f in train_v] + test_noise
         if len(train_v) < 2:
             print(f"{feature} is trivial, dropping {feature}")
-            df.drop(col=feature, inplace=True)
+            df.drop(columns=[feature], inplace=True)
         else:
             noise_dict = {}
             for v in values:
@@ -1106,7 +1106,7 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
         if df[f'{feature}_on_{pivot}'].nunique() < 256:
             X = df[f'{feature}_on_{pivot}'].values
             df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
-            df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype(int).astype('category')
+            df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('int').astype('category')
         else:
             print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
@@ -1740,9 +1740,11 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
             }
             study_params['n_jobs']=CORES
             study_params['verbose'] = -1
-            if metric.startswith("probability") or metric.startswith("classification"): 
-                study_params['objective'] = 'binary'
+            if metric.startswith("probability"): 
                 study_params['metric'] = 'auc'
+                model = lgb.LGBMClassifier(**study_params, random_state=SEED)
+            elif metric.startswith("classification"):
+                study_params['metric'] = 'accuracy'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
             else:
                 study_params['objective'] = 'regression'
@@ -2124,6 +2126,92 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
 
     return submission_df
+
+def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, models: dict,
+                                folds: int = 7, meta_model=None, raw_score: bool=False,  top_k: int=3,
+                                verbose: bool = True):
+    
+    """
+    trains models with cross validation and returns trained models and a stacking meta model
+    -----------
+    for each model in models, trains with cross validation using the corresponding feature subset in features
+    returns a dictionary of trained models and a meta stacking model
+    prints OOF validation score for each model
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+    def _calculate_score(y_val, y_predict, raw_score=raw_score, top_k=top_k):
+        if raw_score:
+            score = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = top_k)
+        else:
+            score_j = 0
+            score=0
+            for i in range(1,top_k+1):
+                score_i = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = i)
+                score += (score_i - score_j) / i
+                score_j = score_i
+        return score
+    def _get_all_features(features=features):
+        list_of_lists = [f for f in features.values()]
+        flat = []
+        seen = set()
+        for sub in list_of_lists:
+            for item in sub:
+                if item not in seen:
+                    seen.add(item)
+                    flat.append(item)
+        return flat
+
+    print("=" * 69)
+    print(f"Training {len(models.keys())} Models")
+    print("=" * 69)
+
+    all_features = _get_all_features(features)
+    X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
+
+    trained_models = {}
+    model_names = list(models.keys())
+    n_models = len(model_names)
+    n_cats = y.nunique()
+
+#    OOF matrix only needed for training meta model
+    oof_matrix = np.zeros((y.shape[0], n_cats, n_models))
+    
+    for i, (k, model) in enumerate(models.items()):
+        print(f"Training Model: {k}")
+        cv = skl.model_selection.StratifiedKFold(
+            n_splits=folds, shuffle=True, random_state=69 + i
+            )
+
+        cv_models = []
+        oof_pred = np.zeros((y.shape[0], n_cats))
+        for (train_idx, val_idx) in tqdm(cv.split(X, y), desc="training models", unit="folds"):
+            X_t, X_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx]
+            y_t, y_v = y.iloc[train_idx], y.iloc[val_idx]
+            
+            model.fit(X_t, y_t)
+            y_v_pred = model.predict_proba(X_v)
+            oof_pred[val_idx, :] = y_v_pred
+            cv_models.append(model)
+
+        trained_models[k] = cv_models
+        oof_matrix[:, :, i] = oof_pred
+        y_all = np.array(y).reshape(-1, 1)
+
+        score = _calculate_score(y_all, oof_pred)
+        print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k} score:  {score:.4f}  ***")
+
+    # ---- Stacking meta-model on OOF predictions ----
+    tic=time()
+    meta_model = skl.linear_model.LogisticRegression() if meta_model is None else meta_model
+    print(f"Selected meta model is: {meta_model}")
+    oof_matrix = oof_matrix.reshape(y.shape[0], -1)
+    print(f"Training Meta Model on {oof_matrix.shape[1]} OOF predictions and {y.shape[0]} samples")
+    meta_model.fit(oof_matrix, y)
+    print(f"Meta Model training completed in {time()-tic:.2f}sec")
+
+    return trained_models, meta_model
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
