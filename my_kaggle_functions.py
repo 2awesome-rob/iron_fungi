@@ -1744,7 +1744,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
                 study_params['metric'] = 'auc'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
             elif metric.startswith("classification"):
-                study_params['metric'] = 'accuracy'
+#                study_params['metric'] = 'accuracy'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
             else:
                 study_params['objective'] = 'regression'
