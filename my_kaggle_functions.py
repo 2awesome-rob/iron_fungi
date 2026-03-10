@@ -1,9 +1,10 @@
+########################################
 # Rob's functions for use in kaggle tabular data projects
 # Please let me know if you use !!!
 # Feedback always appreciated
+########################################
 
-####################
-# Import common libraries and toolkits 
+# Import required libraries and toolkits 
 import numpy as np
 import pandas as pd 
 
@@ -88,10 +89,8 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
     generates a palette or color map for visualizations
     -----------
     returns:
-    if n_colors is provided:
-    - generates and returns a matplotlib colormap object or list of colors with n_colors
-    else:
-    - default colormap object or list of colors for visualizations
+    if get_cmap: a dictionary color map
+    else: a list of colors as a palette 
     -----------
     requires: seaborn, matplotlib
     """
@@ -148,22 +147,23 @@ def summarize_data(df_: pd.DataFrame, features: list)-> None:
     
 def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_sep: str=","):
     """
-    loads Kaggle type tabular data from path into single DataFrame
+    loads Kaggle type tabular data from csv files into single DataFrame
     -----------
     returns:
-    - merged DataFrame for EDA & feature engineering
-    - list of training features
+    - df: merged DataFrame for EDA & feature engineering
+    - features: list of training features
         - cleans for consistent pandas friendly feature names
-    - list of targets, including column "target_mask"
+    - targets: list of targets, including column "target_mask"
         - adds "target_mask" for separating test from training data
-    - target column name (first target)
+    - target: column name (first target)
+    -----------
+    requires: pandas
     -----------
     assumes:
     - path contains train.csv, test.csv, sample_submission.csv files
     - extra_data is optional "path + file name" of additional training data
         - extra_data contains same features and targets as train.csv
             - may need to preprocess extra data
-    requires: pandas
     """
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
     df_test = pd.read_csv(f"{path}/test.csv", sep=csv_sep)
@@ -207,14 +207,17 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
 
 def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=8, verbose: bool=True):
     """
-    Adds target "label" columns
+    Adds category target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
     -----------
     if target is numeric with more unique values than cuts
         - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
         - adds "label" using pd.cut to create equal-width bins of the target
+    -----------
     returns:
-    - df with new label columns added
+    - df: updared with new label columns added
+    - targets: updated list of target features 
+    - label: categorical label used for plotting
     """
     if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
         df["qcut_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
