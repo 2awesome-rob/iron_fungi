@@ -1101,18 +1101,14 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
     --------
     requires: pandas, scikit learn, numpy
     """
-    if df[pivot].nunique() > 16:
-        print(f"{pivot} has too many values: {df[pivot].nunique()}")
-        return df
     for feature in features:
-        if df[feature].nunique() < 16:
-            df[f'{feature}_on_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
-            if df[f'{feature}_on_{pivot}'].nunique() < 256:
-                X = df[f'{feature}_on_{pivot}'].values
-                df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
-                df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype('category')
-            else:
-                print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
+        df[f'{feature}_on_{pivot}'] = df[feature].astype(str) + df[pivot].astype(str)
+        if df[f'{feature}_on_{pivot}'].nunique() < 256:
+            X = df[f'{feature}_on_{pivot}'].values
+            df[f'{feature}_on_{pivot}'] = skl.preprocessing.OrdinalEncoder().fit_transform(X.reshape(-1, 1))
+            df[f'{feature}_on_{pivot}'] = df[f'{feature}_on_{pivot}'].astype(int).astype('category')
+        else:
+            print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
 def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, task:str='regression') -> pd.DataFrame:
@@ -1165,11 +1161,6 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, tas
         df = pd.concat([df, df_hint], axis=1)
 
     return df
-
-
-
-
-
 
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
@@ -1462,11 +1453,6 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.log_loss(actual, predicted)
     elif metric in ['brier', 'probability_brier', 'brier_score']:
         return skl.metrics.brier_score_loss(actual, predicted)
-    elif metric in ['classification_map3', 'probability_map3', 'map3']:
-        i = skl.metrics.top_k_accuracy_score(actual, predicted, k = 1)
-        j = skl.metrics.top_k_accuracy_score(actual, predicted, k = 2)
-        k = skl.metrics.top_k_accuracy_score(actual, predicted, k = 3)
-        return i + 0.5 * (j - i) + 0.33333 * (k - j)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
@@ -1481,7 +1467,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     based on the task (regression, classification, or probability)
     plots:
     for regression: actual vs predicted scatterplots for trained model and ridge regression, distribution of predictions vs actuals, and residual distribution
-    for classification: confusion matrices for trained model and gaussian naive bayes, distribution of predicted probabilities
+    for classification: confusion matrices for trained model and gaussian naive bayes, distribution of predicted probabilities; good for binary classification and multiclassification
     for probability: ROC curve comparing trained model and gaussian naive bayes, distribution of predicted probabilities, and confusion matrix for predicted probabilities
     -----------
     requires: pandas, scikit learn, matplotlib, numpy
@@ -1495,7 +1481,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     
     base_model.fit(X_t[numeric_features], y_t)
     
-    #TODO validate reshape with multiclass proba
+    #TODO validate reshape with multiclass 
     if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
@@ -1580,7 +1566,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     """
     trains a model and returns trained model & score
     -----------
-    model: a scikit learn compatible model with fit and predict methods
+    model: a scikit learn compatible model with fit and predict (and predict_proba) methods
     task: "regression", "classification", or "probability" to determine prediction and scoring method
     returns:
     - trained model
@@ -1607,6 +1593,46 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     if verbose == True: 
         plot_training_results(X_train, X_val, y_t, y_v, y_p,
                               task=task) 
+    return model, score
+
+def train_and_score_multiclass_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
+                                    y_train: pd.Series, y_val:pd.Series,
+                                    model, raw_score: bool=False,  top_k: int=3,
+                                    verbose: bool=True):
+    """
+    trains a multiclass prediction model and returns trained model & top k score
+    -----------
+    model: a scikit learn compatible model with fit and predict methods
+    -----------
+    returns:
+    - trained model
+    - top k score 
+    -----------
+    requires: pandas, scikit learn, numpy, matplotlib
+    """
+    model.fit(X_train, y_train)
+    y_predict = model.predict_proba(X_val)
+     # unweighted top_k accuracy
+    if raw_score:
+        score = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = top_k)
+    # weighted top_k accuracy
+    else:
+        score_j = 0
+        score=0
+        for i in range(1,top_k+1):
+            score_i = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = i)
+            score += (score_i - score_j) / i
+            score_j = score_i
+
+    print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k} score:  {score:.4f}  ***")
+    if verbose == True: 
+        y_t = np.array(y_train).reshape(-1, 1)
+        y_v = np.array(y_val).reshape(-1, 1)
+        y_predict = model.predict(X_val)
+        y_p = np.array(y_predict).reshape(-1, 1)
+        #TODO: evaluate better training plots for multiclass performance
+        plot_training_results(X_train, X_val, y_t, y_v, y_p,
+                              task="classification") 
     return model, score
 
 def get_feature_importance(X_train: pd.DataFrame, X_val: pd.DataFrame,
