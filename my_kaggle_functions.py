@@ -1,26 +1,26 @@
-########################################
+################################################################################
 # Rob's functions for use in kaggle tabular data projects
 # Please let me know if you use !!!
 # Feedback always appreciated
-########################################
+################################################################################
 
 # Import required libraries and toolkits 
 import numpy as np
 import pandas as pd 
+
+import torch
 
 import sklearn as skl
 import lightgbm as lgb
 import xgboost as xgb
 import catboost as catb
 
-import torch
-
-import math
 from scipy import stats
+import math
 import random
-import itertools
 
 import optuna
+import itertools
 from tqdm import tqdm
 from time import time
 
@@ -37,15 +37,11 @@ from multiprocessing import cpu_count
 #import statsmodels.api as sm
 #import statsmodels.formula.api as smf
 
-
+########################################
 #Initialization and data loading functions
 def set_globals(seed: int = 67, verbose: bool=True):
     """
-    -----------
     sets: global variables and configurations for the project
-    - seed settings for reproducibility
-    - pandas display options
-    - seaborn/matplotlib visualization styles
     -----------
     returns:
     - DEVICE: torch device (cpu or cuda)
@@ -67,8 +63,10 @@ def set_globals(seed: int = 67, verbose: bool=True):
 
     # custom seaborn/matplotlib style
     MY_PALETTE = get_colors()
-    sns.set_theme(context = 'paper', style = 'ticks', palette = MY_PALETTE, rc={"figure.figsize": (9, 3), "axes.spines.right": False, "axes.spines.top": False})
-
+    sns.set_theme(context = 'paper',
+                  style = 'ticks',
+                  palette = MY_PALETTE, 
+                  rc={"figure.figsize": (9, 3), "axes.spines.right": False, "axes.spines.top": False})
     # device settings for torch
     try: 
         torch.manual_seed(seed)
@@ -86,15 +84,19 @@ def set_globals(seed: int = 67, verbose: bool=True):
 def get_colors(color_keys: list=None, get_cmap: bool=False, 
                 cmap_name: str='cividis', n_hues: int=1, n_sats: int=1):
     """
-    generates a palette or color map for visualizations
+    generates a color map or palette for visualizations
     -----------
-    returns:
-    if get_cmap: a dictionary color map
-    else: a list of colors as a palette 
+    if get_cmap returns:
+        - a dictionary as a mpl.colormap
+    else returns: 
+        - a list of colors as a sns.palette 
     -----------
     requires: seaborn, matplotlib
     """
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender', 'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender'])
+    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green',
+                                   'dusty rose', 'dark lavender',
+                                   'carolina blue', 'sunflower', 'lichen',
+                                   'blush pink', 'dusty lavender'])
     if color_keys is None:
         if get_cmap: return mpl.colormaps[cmap_name]
         else: return MY_PALETTE
@@ -152,9 +154,7 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
     returns:
     - df: merged DataFrame for EDA & feature engineering
     - features: list of training features
-        - cleans for consistent pandas friendly feature names
-    - targets: list of targets, including column "target_mask"
-        - adds "target_mask" for separating test from training data
+    - targets: list of targets, including target_mask
     - target: column name (first target)
     -----------
     requires: pandas
@@ -1115,6 +1115,62 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
                 print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
+def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, task:str='regression') -> pd.DataFrame:
+    """
+    adds new features using by generating “hint” features via cross‑validated out‑of‑fold predictions and ensembles.
+    -------
+    returns:
+    df: with updated features
+    --------
+    requires:
+    pandas, numpy, scikit learn 
+    """
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    X = df.loc[mask, features]
+    y = df.loc[mask, target]
+
+    if task.startswith('regression'):
+        cv = skl.model_selection.KFold(n_splits=7, shuffle=True, random_state=69)
+        base_model = skl.linear_model.Ridge() if model is None else model
+        y_hint = np.zeros(len(df))
+        y_ens = np.zeros(len(df)) 
+    else:
+        cats = y.unique()
+        cv = skl.model_selection.StratifiedKFold(n_splits=7, shuffle=True, random_state=69)
+        base_model = skl.naive_bayes.GaussianNB() if model is None else model
+        y_hint = np.zeros((len(df), len(cats)))
+        y_ens = np.zeros((len(df), len(cats)))
+
+    models = []
+    for fold, (train_idx, val_idx) in tqdm(enumerate(cv.split(X, y)), total=cv.get_n_splits()):
+        m = base_model 
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+        m.fit(X_train, y_train)
+        if task.startswith('regression'):
+            y_hint[mask.index[val_idx]] = m.predict(X_val)
+            y_ens += m.predict(df[features])
+        else:
+            y_hint[mask.index[val_idx], :] = m.predict_proba(X_val)
+            y_ens += m.predict_proba(df[features])
+    y_ens /= len(models)
+    if task.startswith('regression'):
+        df["hint"] = y_hint
+        df["hint"] = df["hint"].fillna(pd.Series(y_ens, index=df.index))
+    else:
+        cols = [f"hint_{cat}" for cat in cats]
+        df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
+        df_ens = pd.DataFrame(y_ens, index=df.index, columns=cols)
+        df_hint = df_hint.fillna(df_ens)
+        df = pd.concat([df, df_hint], axis=1)
+
+    return df
+
+
+
+
+
+
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
     """
     fits a mapper to a sample of the data and then applys the mapping function to the full dataset to create new features
@@ -1406,6 +1462,11 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.log_loss(actual, predicted)
     elif metric in ['brier', 'probability_brier', 'brier_score']:
         return skl.metrics.brier_score_loss(actual, predicted)
+    elif metric in ['classification_map3', 'probability_map3', 'map3']:
+        i = skl.metrics.top_k_accuracy_score(actual, predicted, k = 1)
+        j = skl.metrics.top_k_accuracy_score(actual, predicted, k = 2)
+        k = skl.metrics.top_k_accuracy_score(actual, predicted, k = 3)
+        return i + 0.5 * (j - i) + 0.33333 * (k - j)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
