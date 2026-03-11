@@ -896,14 +896,13 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     -----------
     requires: pandas, numpy
     """
-    def _get_mean_std(df, df_train, feature, target):
-        tgt_mean=df_train.groupby(feature)[target].mean().to_dict()
-        tgt_std=df_train.groupby(feature)[target].std().to_dict()
+    def _get_mean_std(df, feature, target):
+        tgt_mean=df[df.target_mask.eq(True)].groupby(feature)[target].mean().to_dict()
+        tgt_std=df[df.target_mask.eq(True)].groupby(feature)[target].std().to_dict()
         df[f"{feature}_tgt_mu"] = df[feature].replace(tgt_mean).astype(float)
         df[f"{feature}_tgt_std"] = df[feature].replace(tgt_std).astype(float)
         return df
     
-    df[features] = df[features].astype('category')
     df_train = df[df.target_mask.eq(True)]
     df_test = df[df.target_mask.eq(False)]
     #assume threshold is given in percent
@@ -912,7 +911,6 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
 
     for feature in features:
         noise = -1 if df[feature].cat.categories.dtype == 'int' or df[feature].cat.categories.dtype == 'float' else "noise"
-        print(feature,"   ", noise) #DEBUG
         train_v = list(df_train[feature].unique())
         test_v = list(df_test[feature].unique())
         train_noise = [f for f in train_v if f not in test_v]
@@ -923,36 +921,30 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
             df.drop(columns=[feature], inplace=True)
         else:
             noise_dict = {}
+            for v in test_noise + train_noise:
+                noise_dict[v] = noise
             for v in values:
-                if v in test_noise or v in train_noise:
-                    noise_dict[v] = noise
-                elif df_train.groupby(feature)[feature].count()[v] < noise_ceil_train:
-                    noise_dict[v] = noise
-                elif df_test.groupby(feature)[feature].count()[v] < noise_ceil_test:
+                if df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or df_test.groupby(feature)[feature].count()[v] < noise_ceil_test:
                     noise_dict[v] = noise
             if len(noise_dict.keys()) == 0:
                 print(f"No noise identified in {feature}")
-                if target is not None:
-                    df = _get_mean_std(df, df_train, feature, target)
-            elif len(noise_dict.keys()) > 1:
+            elif len(noise_dict.keys()) == 1:
+                print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}")
+            else:
                 df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
                 training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise)].shape[0]
                 if  training_noise > 0:
-                    df[f"{feature}"] = df[feature].replace(noise_dict)
-                    if target is not None:
-                        df = _get_mean_std(df, df_train, feature, target)
-                    df[f"{feature}"] = df[feature].replace(noise_dict).astype("category")
+                    df[feature] = df[feature].replace(noise_dict)
                     print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
                 else:
                     print(f"""❌ Unable to denoise {feature}.\n
-                              training noise: {training_noise} samples\n
-                              test noise: {df_test[df_test[f"{feature}_denoise"].eq(noise)].shape[0]} samples
+                              training noise: {training_noise} samples with noise in test data\n
+                              noise values in test data: {list(noise_dict.keys())}
                           """)
-            else:
-                print(f"❌ Unable to denoise {feature}. Only one noise feature noise: {noise_dict.keys()}")
-                if target is not None:
-                    df = _get_mean_std(df, df_train, feature, target)
-    return df  
+        if target is not None:
+            df = _get_mean_std(df, feature, target)
+            
+    return df 
 
 def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
                  remove: bool=False, verbose: bool=False) -> pd.DataFrame:
