@@ -434,10 +434,12 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     def _plot_dt_relationship(ax, feature, y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.scatterplot(data=df_sampled, x=feature, y=target, ax=ax, zorder=0, alpha=0.5)
-        df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target].mean().rename(f"mean_w").reset_index()
-        sns.lineplot(data=df_w, x=feature, y=f"mean_w", ax=ax)
         df_m = df.groupby([pd.Grouper(key=f"{feature}", freq="MS")])[target].mean().rename(f"mean_m").reset_index()
-        sns.lineplot(data=df_m, x=feature, y=f"mean_m", ax=ax)
+        if len(df_m) > 12:
+            sns.lineplot(data=df_m, x=feature, y=f"mean_m", ax=ax, color='xkcd:rust')
+        else:
+            df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target].mean().rename(f"mean_w").reset_index()
+            sns.lineplot(data=df_w, x=feature, y=f"mean_w", ax=ax, color='xkcd:rust')
         ax.set_title(f'{target} mean vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
@@ -493,10 +495,11 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color = 'xkcd:steel grey')
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
-    ### TODO: what should this plot look like for datetime features (dt plot 2)
-    def _plot_dt_lagplot(ax, feature, label, lag=1):
-        #TODO what does this look like? maybe a lag plot?
-        pass
+    ### autocorrelation spikes indicate seasonal relationships with target  (dt plot 2)
+    def _plot_dt_autoplot(ax, feature, target):
+        ds = df[[feature, target]].set_index(feature)
+        pd.plotting.autocorrelation_plot(ds[target], ax=ax)
+        ax.set_yticks([])
 
     ### limit number of features plotted/size of plot
     f = min(20, len(features))
@@ -541,7 +544,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             else: _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
             #target distribution by feature plot (2)
             if label != None:
-                _plot_dt_lagplot(fig.add_subplot(gs[i, 2]), feature, label, lag=1)
+                _plot_dt_autoplot(fig.add_subplot(gs[i, 2]), feature, target)
         elif is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
             if len(order) <= 128:
