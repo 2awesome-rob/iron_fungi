@@ -1744,7 +1744,6 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
                 study_params['metric'] = 'auc'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
             elif metric.startswith("classification"):
-#                study_params['metric'] = 'accuracy'
                 model = lgb.LGBMClassifier(**study_params, random_state=SEED)
             else:
                 study_params['objective'] = 'regression'
@@ -2212,6 +2211,78 @@ def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, mo
     print(f"Meta Model training completed in {time()-tic:.2f}sec")
 
     return trained_models, meta_model
+
+def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
+                      models: dict, TargetTransformer=None, meta_model=None, top_k: int=3,
+                      path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
+    """
+    makes predictions with cross validated models and returns predictions
+    -----------
+    for each model in models, makes predictions with each fold model and averages predictions for each model
+    averages predictions across models to get final predictions
+    returns a array of predictions for submission
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+    def _plot_target(df: pd.DataFrame, picks: str, title: str='predicted target distribution') -> None:
+        df_long = df[picks].melt(var_name="seq", value_name="value")
+        sns.countplot(data=df_long, x="value", hue="seq", stat='percent', dodge=True)
+        plt.yticks([])
+        plt.xlabel("")
+        plt.title(title)
+        plt.show()
+
+    n_models = len(list(models.keys()))
+    n_cats = len(models[list(models.keys())[0]][0].classes_)
+    
+    if meta_model is None:
+        y_test = np.zeros((y.shape[0], n_cats))
+    else:
+        y_oof_matrix = np.zeros((y.shape[0], n_cats, n_models))
+
+    for i, (k, cv_models) in tqdm(enumerate(models.items()), desc="Training models", unit="models"):
+        y_cv = np.zeros((y.shape[0], n_cats))
+        training_features = features[k]
+        for model in tqdm(cv_models, desc=f"Cross validated {k} models", unit="models"):
+            y_cv += model.predict_proba(X[training_features])
+            
+        y_cv /= len(cv_models)
+        if meta_model is None:
+            y_test += y_cv
+        else:
+            y_oof_matrix[:, :, i] = y_cv
+
+    if meta_model is None:
+        y_test /= len(models.keys())
+    else:
+        y_oof_matrix = y_oof_matrix.reshape(y.shape[0], -1)
+        y_test = meta_model.predict_proba(y_oof_matrix)
+
+    #top_k indices (column #s in y_predict)
+    topk_indices = np.argsort(y_test, axis=1)[:, -top_k:][:, ::-1]
+   
+    if TargetTransformer is not None:
+        topk_cats = TargetTransformer.inverse_transform(topk_indices.flatten()).reshape(-1, top_k)
+    else:
+        topk_cats = topk_indices
+
+    results = {}
+    for i in range(top_k):
+        results[f'pick_{i+1}'] = topk_cats[:, i]
+    results['top3_combined'] = [f"{cat1} {cat2} {cat3}" 
+                          for cat1, cat2, cat3 in zip(topk_cats[:, 0], topk_cats[:, 1], topk_cats[:, 2])]
+
+    df_results = pd.DataFrame(results)    
+    submission_df = pd.read_csv(f"{path}/{file}")
+    submission_df[target] = results['top3_combined']
+    submission_df.to_csv('/kaggle/working/submission.csv', index=False)
+
+    if verbose:
+        _plot_target(df_results, [f for f in results.columns if "pick" in f], title = f"distribution of {target} predictions")
+    print("=" * 6, 'save success', "=" * 6, "\n")
+
+    return submission_df
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
