@@ -899,8 +899,8 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     def _get_mean_std(df, df_train, feature, target):
         tgt_mean=df_train.groupby(feature)[target].mean().to_dict()
         tgt_std=df_train.groupby(feature)[target].std().to_dict()
-        df[f"{feature}_tgt_mu"] = df[feature].map(tgt_mean).astype('float32')
-        df[f"{feature}_tgt_std"] = df[feature].map(tgt_std).astype('float32')
+        df[f"{feature}_tgt_mu"] = df[feature].replace(tgt_mean).astype(float)
+        df[f"{feature}_tgt_std"] = df[feature].replace(tgt_std).astype(float)
         return df
     
     df[features] = df[features].astype('category')
@@ -913,20 +913,18 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     for feature in features:
         noise = -1 if df[feature].cat.categories.dtype == 'int' or df[feature].cat.categories.dtype == 'float' else "noise"
         print(feature,"   ", noise) #DEBUG
-        train_v = df_train[feature].unique()
-        test_v = df_test[feature].unique()
+        train_v = list(df_train[feature].unique())
+        test_v = list(df_test[feature].unique())
         train_noise = [f for f in train_v if f not in test_v]
         test_noise = [f for f in test_v if f not in train_v]
-        values = [f for f in train_v] + test_noise
+        values = train_v + test_noise
         if len(train_v) < 2:
             print(f"{feature} is trivial, dropping {feature}")
             df.drop(columns=[feature], inplace=True)
         else:
             noise_dict = {}
             for v in values:
-                if v in test_noise:
-                    noise_dict[v] = noise
-                elif v in train_noise:
+                if v in test_noise or v in train_noise:
                     noise_dict[v] = noise
                 elif df_train.groupby(feature)[feature].count()[v] < noise_ceil_train:
                     noise_dict[v] = noise
@@ -940,10 +938,11 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
                 df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
                 training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise)].shape[0]
                 if  training_noise > 0:
-                    df[f"{feature}"] = df[feature].replace(noise_dict).astype('category')
-                    print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
+                    df[f"{feature}"] = df[feature].replace(noise_dict)
                     if target is not None:
                         df = _get_mean_std(df, df_train, feature, target)
+                    df[f"{feature}"] = df[feature].replace(noise_dict).astype("category")
+                    print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
                 else:
                     print(f"""❌ Unable to denoise {feature}.\n
                               training noise: {training_noise} samples\n
