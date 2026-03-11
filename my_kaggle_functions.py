@@ -147,7 +147,7 @@ def summarize_data(df_: pd.DataFrame, features: list)-> None:
         print(df[non_numeric_cols].describe().T)
     except: pass
     
-def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_sep: str=","):
+def load_tabular_data(path: str, extra_data: str=None, id_feature: list=None, verbose: bool=True, csv_sep: str=","):
     """
     loads Kaggle type tabular data from csv files into single DataFrame
     -----------
@@ -171,7 +171,8 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
     
     targets = list(df_submission.columns)
     features = list(df_test.columns)
-    id_feature = [feature for feature in features if feature in targets]
+    if id_feature is None:
+        id_feature = [feature for feature in features if feature in targets]
     assert len(id_feature) == 1, f"Expected exactly one ID column: id_feature = {id_feature}"
     targets = [feature for feature in targets if feature not in id_feature]
     features = [feature for feature in features if feature not in id_feature]
@@ -493,7 +494,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
     ### TODO: what should this plot look like for datetime features (dt plot 2)
-    def _plot_dt_lagplot(ax, feature, lag, label):
+    def _plot_dt_lagplot(ax, feature, label, lag=1):
         #TODO what does this look like? maybe a lag plot?
         pass
 
@@ -540,20 +541,22 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             else: _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
             #target distribution by feature plot (2)
             if label != None:
-                _plot_dt_lagplot(fig.add_subplot(gs[i, 2]), feature, lag, label)
+                _plot_dt_lagplot(fig.add_subplot(gs[i, 2]), feature, label, lag=1)
         elif is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
-            df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
-            color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
-            #distribution plot (0)
-            _plot_cat_distribution(ax0, feature, order, color_map)
-            #target relationship plot(1)
-            if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, y_order)
-            else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
-            #target distribution by feature plot (2)
-            if label != None:
-                _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
-                                inner_label=low_label, outer_label=high_label)
+            if len(order <= 128):
+                df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
+                color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
+                #distribution plot (0)
+                _plot_cat_distribution(ax0, feature, order, color_map)
+                #target relationship plot(1)
+                if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, y_order)
+                else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
+                #target distribution by feature plot (2)
+                if label != None:
+                    _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
+                                    inner_label=low_label, outer_label=high_label)
+            #TODO: alternate plot when high ordinal categorical?
         else:
             #distribution plot (0)
             _plot_num_distribution(ax0, feature)
