@@ -899,8 +899,8 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
     def _get_mean_std(df, df_train, feature, target):
         tgt_mean=df_train.groupby(feature)[target].mean().to_dict()
         tgt_std=df_train.groupby(feature)[target].std().to_dict()
-        df[f"{feature}_tgt_mu"] = df[feature].replace(tgt_mean).astype('float32')
-        df[f"{feature}_tgt_std"] = df[feature].replace(tgt_std).astype('float32')
+        df[f"{feature}_tgt_mu"] = df[feature].map(tgt_mean).astype('float32')
+        df[f"{feature}_tgt_std"] = df[feature].map(tgt_std).astype('float32')
         return df
     
     df[features] = df[features].astype('category')
@@ -912,6 +912,7 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
 
     for feature in features:
         noise = -1 if df[feature].cat.categories.dtype == 'int' or df[feature].cat.categories.dtype == 'float' else "noise"
+        print(feature,"   ", noise) #DEBUG
         train_v = df_train[feature].unique()
         test_v = df_test[feature].unique()
         train_noise = [f for f in train_v if f not in test_v]
