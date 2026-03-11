@@ -172,7 +172,7 @@ def load_tabular_data(path: str, extra_data: str=None, verbose: bool=True, csv_s
     targets = list(df_submission.columns)
     features = list(df_test.columns)
     id_feature = [feature for feature in features if feature in targets]
-    assert len(id_feature) == 1, "Expected exactly one ID column"
+    assert len(id_feature) == 1, f"Expected exactly one ID column: id_feature = {id_feature}"
     targets = [feature for feature in targets if feature not in id_feature]
     features = [feature for feature in features if feature not in id_feature]
    
