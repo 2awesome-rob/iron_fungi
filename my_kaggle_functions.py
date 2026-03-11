@@ -498,9 +498,8 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     ### autocorrelation spikes indicate seasonal relationships with target  (dt plot 2)
     def _plot_dt_autoplot(ax, feature, target):
         ds = df[[feature, target]].set_index(feature)
-        print(ds)
         pd.plotting.autocorrelation_plot(ds[target], ax=ax)
-        ax.set_yticks([])
+#        ax.set_yticks([])
 
     ### limit number of features plotted/size of plot
     f = min(20, len(features))
