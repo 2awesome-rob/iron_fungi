@@ -544,7 +544,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                 _plot_dt_lagplot(fig.add_subplot(gs[i, 2]), feature, label, lag=1)
         elif is_cat:
             order = sorted(df[feature].dropna().unique().tolist())
-            if len(order <= 128):
+            if len(order) <= 128:
                 df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
                 color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
                 #distribution plot (0)
