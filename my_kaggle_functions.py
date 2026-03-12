@@ -147,7 +147,10 @@ def summarize_data(df_: pd.DataFrame, features: list)-> None:
         print(df[non_numeric_cols].describe().T)
     except: pass
     
-def load_tabular_data(path: str, extra_data: str=None, id_feature: list=None, verbose: bool=True, csv_sep: str=","):
+def load_tabular_data(path: str, id_feature: list=None,
+                      extra_data: str=None, rename_col: dict=None,
+                      csv_sep: str=",",
+                      verbose: bool=True):
     """
     loads Kaggle type tabular data from csv files into single DataFrame
     -----------
@@ -183,6 +186,8 @@ def load_tabular_data(path: str, extra_data: str=None, id_feature: list=None, ve
     if extra_data != None:
         #TODO: validate extra_data loading
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
+        if rename_col is not None:
+            df_extra_training.rename(columns=rename_col, inplace=True)
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
         assert not missing, f"Extra Data missing columns: {missing}"
         df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
@@ -2277,7 +2282,7 @@ def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dic
     submission_df.to_csv('/kaggle/working/submission.csv', index=False)
 
     if verbose:
-        _plot_target(df_results, [f for f in results.columns if "pick" in f], title = f"distribution of {target} predictions")
+        _plot_target(df_results, list(results.keys()), title = f"distribution of {target} predictions")
     print("=" * 6, 'save success', "=" * 6, "\n")
 
     return submission_df
