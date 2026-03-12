@@ -188,6 +188,7 @@ def load_tabular_data(path: str, id_feature: list=None,
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
         if rename_col is not None:
             df_extra_training.rename(columns=rename_col, inplace=True)
+            print(df_extra_training.head())#DEBUG
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
         assert not missing, f"Extra Data missing columns: {missing}"
         df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
