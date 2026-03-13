@@ -607,7 +607,7 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
 
 def plot_feature_corr(df, features, target=None):
     plot_features = [f for f in features if
-                     (df[f].dtype == 'int' or df[f].dtype == 'float')]
+                     (df[f].dtype == int or df[f].dtype == float)]
     if target is not None:
         plot_features.insert(0, target)
     plt.figure(figsize=(8,6))
@@ -856,6 +856,29 @@ def impute_using(df: pd.DataFrame, impute_informant: str, impute_features:list)-
         df[f] = ds
         df[f].fillna(df[f].mean(), inplace=True)
     df.drop('control', axis=1, inplace=True)
+    return df
+
+def regression_imputer(df: pd.DataFrame, features: list, split: str, tgt: str,
+                       validation_size: float=0.15, impute: bool=True, verbose: bool=False):
+    """
+    """
+    SEED = 80085
+    X_test = df[df[split].eq(True)][features]
+    y_test = df[df[split].eq(True)][tgt]
+
+    X = df[df[split].eq(False)][features]
+    y = df[df[split].eq(False)][tgt]
+
+    X_train, X_val, y_train, y_val  = skl.model_selection.train_test_split(
+        X, y, test_size = validation_size, random_state = SEED)
+
+    imp_model, _ = train_and_score_model(
+        X_train, X_val, y_train, y_val, 
+        model = lgb.LGBMRegressor(verbose=-1), task="regression_rmse", verbose=verbose
+    )
+
+    if impute: df.loc[df[split].eq(True), tgt] = imp_model.predict(X_test)
+
     return df
 
 def clean_categoricals(df: pd.DataFrame, features: list, 
@@ -1335,7 +1358,8 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
         return df
 
     def _plot_circle(df, cyclic_features):
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        fig, ax = plt.subplots(figsize=(3, 3))
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
@@ -1387,7 +1411,8 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     requires: pandas, numpy, seaborn
     """
     def _plot_circle(df, cyclic_features):
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        fig, ax = plt.subplots(figsize=(3, 3))
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
