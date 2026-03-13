@@ -1418,11 +1418,12 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
         plt.ylabel(None)
         plt.yticks(())
         plt.show()
-        
+    
     if points is None:
         points = df[feature].nunique()
-    df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * df[feature]/points)
-    df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * df[feature]/points)
+    X = df[feature].astype(float).values().reshape(-1,1)
+    df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * X/points)
+    df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * X/points)
     
     if verbose:
         _plot_circle(df, [f'{feature}_{points}_sin', f'{feature}_{points}_cos'])
