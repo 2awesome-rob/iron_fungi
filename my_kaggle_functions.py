@@ -1359,7 +1359,7 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
 
     def _plot_circle(df, cyclic_features):
         fig, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax[0])
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
@@ -1412,7 +1412,7 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     """
     def _plot_circle(df, cyclic_features):
         fig, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax[0])
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
