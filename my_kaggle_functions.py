@@ -1226,7 +1226,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
     print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
 
     if verbose:
-        fig, ax = plt.subplots(figsize=(5, 3))
+        _, ax = plt.subplots(figsize=(5, 3))
         if target != None:
             palette = get_colors(df[target].unique(), get_cmap=True)
             X_features[target] = df[target]
@@ -1358,8 +1358,8 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
         return df
 
     def _plot_circle(df, cyclic_features):
-        fig, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax[0])
+        _, ax = plt.subplots(figsize=(3, 3))
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
@@ -1411,8 +1411,8 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     requires: pandas, numpy, seaborn
     """
     def _plot_circle(df, cyclic_features):
-        fig, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax[0])
+        _, ax = plt.subplots(figsize=(3, 3))
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
         plt.xlabel(None)
         plt.xticks(())
         plt.ylabel(None)
