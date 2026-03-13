@@ -184,13 +184,13 @@ def load_tabular_data(path: str, id_feature: list=None,
     df = pd.concat([df_train.assign(target_mask = True), df_test.assign(target_mask = False)], ignore_index=True)
     
     if extra_data != None:
-        #TODO: validate extra_data loading
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
         if rename_col is not None:
             df_extra_training.rename(columns=rename_col, inplace=True)
-            print(df_extra_training.head())#DEBUG
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
         assert not missing, f"Extra Data missing columns: {missing}"
+        #TODO: consider allowing extra columns to pass and then fixing on backend
+        #TODO: consider alternative strategies for indexing
         df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
         df = pd.concat([df, df_extra_training.assign(target_mask = True)])
     
@@ -1374,6 +1374,34 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
         df.drop(feature, inplace = True, axis = 1)
     if verbose:
         print(f"{feature} features: {[f for f in df.columns if feature in f]}")
+    return df
+
+def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, verbose:bool=True)->pd.DataFrame:
+    """
+    decomposes a clock type feature into a sin/cos component
+    use points = 7 for days of week 
+    use points = 360 for compass headings
+    ------
+    returns df with updated features
+    ------
+    requires: pandas, numpy, seaborn
+    """
+    def _plot_circle(df, cyclic_features):
+        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        plt.xlabel(None)
+        plt.xticks(())
+        plt.ylabel(None)
+        plt.yticks(())
+        plt.show()
+        
+    if points is None:
+        points = df[feature].nunique()
+    df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * df[feature]/points)
+    df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * df[feature]/points)
+    
+    if verbose:
+        _plot_circle(df, [f'{feature}_{points}_sin', f'{feature}_{points}_cos'])
+
     return df
 
 # Training
