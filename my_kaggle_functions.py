@@ -1421,7 +1421,7 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     
     if points is None:
         points = df[feature].nunique()
-    X = df[feature].astype(float).values().reshape(-1,1)
+    X = df[feature].astype(float).values.reshape(-1,1)
     df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * X/points)
     df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * X/points)
     
