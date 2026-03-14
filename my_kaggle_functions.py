@@ -1440,7 +1440,7 @@ def plot_lag(df:pd.DataFrame, feature:str, target:str, lag: int=5, sample: int=N
     except:
         df_plot = df.sample(sample)
     ds = df_plot[ [feature, target]].set_index(feature)
-    _, axs = plt.subplot(nrows=2, ncols=1, figsize=(5, 3))
+    _, axs = plt.subplots(nrows=2, ncols=1, figsize=(5, 3))
     pd.plotting.autocorrelation_plot(ds, ax=axs[0])
     pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
     plt.show()
