@@ -1359,11 +1359,11 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
 
     def _plot_circle(df, cyclic_features):
         _, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
-        plt.xlabel(None)
-        plt.xticks(())
-        plt.ylabel(None)
-        plt.yticks(())
+        ax.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        ax.set_xlabel(None)
+        ax.set_xticks([])
+        ax.set_ylabel(None)
+        ax.set_yticks([])
         plt.show()
         
     MY_PALETTE = get_colors()
@@ -1412,11 +1412,11 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     """
     def _plot_circle(df, cyclic_features):
         _, ax = plt.subplots(figsize=(3, 3))
-        plt.scatter(df[cyclic_features[0]], df[cyclic_features[1]], ax=ax)
-        plt.xlabel(None)
-        plt.xticks(())
-        plt.ylabel(None)
-        plt.yticks(())
+        ax.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+        ax.set_xlabel(None)
+        ax.set_xticks([])
+        ax.set_ylabel(None)
+        ax.set_yticks([])
         plt.show()
     
     if points is None:
@@ -1429,6 +1429,21 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
         _plot_circle(df, [f'{feature}_{points}_sin', f'{feature}_{points}_cos'])
 
     return df
+
+def plot_lag(df:pd.DataFrame, feature:str, target:str, lag: int=5, sample: int=None):
+    """
+    """
+    if sample is None:
+        sample = min(len(df)//2, 5000)
+    try:
+        df_plot = df[df.target_mask.eq(True)].sample(sample)
+    except:
+        df_plot = df.sample(sample)
+    ds = df_plot[ [feature, target]].set_index(feature)
+    _, axs = plt.subplot(nrows=2, ncols=1, figsize=(5, 3))
+    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
+    pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
+    plt.show()
 
 # Training
 def split_training_data(df: pd.DataFrame, features: list, targets, 
@@ -1539,7 +1554,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     
     base_model.fit(X_t[numeric_features], y_t)
     
-    #TODO validate reshape with multiclass 
+    #TODO for multiclass use classification
     if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
@@ -1590,6 +1605,18 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         ax.set_title("Residual Distribution")
         ax.set_yticks([])
         ax.set_ylabel("Count")
+
+    #TODO: Consider incorporation of a validation curve display 
+    #param_name, param_range = "C", np.logspace(-8, 3, 10)
+    #train_scores, test_scores = skl.model_selection.validation_curve(
+    #    model, X, y, param_name=param_name, param_range=param_range
+    #)
+    #display = skl.model_selection.ValidationCurveDisplay(
+    #    param_name=param_name, param_range=param_range,
+    #    train_scores=train_scores, test_scores=test_scores, score_name="Score"
+    #)
+    #display.plot()
+    #plt.show()
 
     fig = plt.figure(figsize=(9, 6))
     gs = mpl.gridspec.GridSpec(2, 3, figure=fig)
