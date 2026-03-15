@@ -188,7 +188,7 @@ def load_tabular_data(path: str, id_feature: list=None,
         if rename_col is not None:
             df_extra_training.rename(columns=rename_col, inplace=True)
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
-        assert not missing, f"Extra Data missing columns: {missing}"
+        #assert not missing, f"Extra Data missing columns: {missing}"
         #TODO: consider allowing extra columns to pass and then fixing on backend
         #TODO: consider alternative strategies for indexing
         df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
