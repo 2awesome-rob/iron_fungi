@@ -630,6 +630,63 @@ def plot_feature_corr(df, features, target=None):
     plt.ylabel("")
     plt.show()
 
+def plot_countplots(df, features):
+    """
+    should work for 2 datasets (target_mask = True/False)
+    need to test for 3 datasets (target_mask = 0/1/2)
+    -------
+    assumes:
+        - target_mask feature indicates number of datasets to compare
+    requires:
+    seaborn, pandas, matplot
+    """
+    print("=" * 69)
+    datasets = df['target_mask'].nunique()
+    
+    my_blues = sns.dark_palette("SteelBlue", n_colors=len(features)*2, reverse = True)
+    my_yellows = sns.light_palette("GoldenRod", n_colors=len(features)*2, reverse = True)
+    my_greys = sns.light_palette("LightGrey", n_colors=len(features))
+
+
+    fig, axs = plt.subplots(figsize=(12,4))
+
+    if datasets == 3:
+        sns.barplot(x = features, y = df.query('target_mask == 2')[features].nunique().values, palette = my_greys, linewidth = 1.5, edgecolor = 'k')
+    sns.barplot(x = features,
+                y = df.query('target_mask == True')[features].nunique().values, 
+                palette = my_blues, 
+                gap = 0.12,
+                linewidth = 1, edgecolor = 'k')
+    sns.barplot(x = features,
+                y = df.query('target_mask == False')[features].nunique().values, 
+                palette = my_yellows, 
+                gap = 0.36,
+                linewidth = 1, edgecolor = 'k')
+
+    j = len(axs.patches) / datasets
+    for i, p in enumerate(axs.patches):
+        value = f"{p.get_height():,.0f}"
+        y = p.get_height()
+        if datasets == 3 and i < j:
+            x = p.get_x() 
+            axs.text(x, y, value, fontsize=9, ha='left', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
+                    bbox=dict(facecolor="LightGrey", boxstyle='round', linewidth=1, edgecolor='k'))
+        elif (datasets == 3 and i < 2 * j) or (datasets == 2 and i < j):
+            x = p.get_x() + 1 * p.get_width()/2
+            axs.text(x, y, value, fontsize=9, ha='center', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
+                    bbox=dict(facecolor="SteelBlue", boxstyle='round', linewidth=1, edgecolor='k'))
+        else:
+            x = p.get_x() + p.get_width()/0.75
+            axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
+                    bbox=dict(facecolor='GoldenRod', boxstyle='round', linewidth=1, edgecolor='k'))
+    plt.xticks(rotation=45, fontsize=10)
+    plt.yticks(())
+    t = 'feature counts in original (grey), training (blue), and test datasets(yellow)' if datasets == 3 else 'feature counts in training (blue), and test datasets(yellow)'
+    plt.suptitle(t = t, fontsize = 10, x = 0.9, ha ='right') 
+    sns.despine()
+    plt.show()
+    return
+
 def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True) -> None:
     """
     prints PCA loadings for selected features in df
@@ -1120,9 +1177,33 @@ def get_feature_by_grouping_on_cat(df:pd.DataFrame, categorys:list, target:str,)
     """
     for category in categorys:
         group_stats = df[df.target_mask.eq(True)].groupby(category)[target].agg(['mean', 'std']).rename(
-            columns={'mean': f'{target}_by_{category}_m', 'std': f'{target}_by_{category}_std'})
+            columns={'mean': f'{target}_by_{category}_mu', 'std': f'{target}_by_{category}_std'})
         df = df.merge(group_stats, on=category, how='left')
+        #TODO fill N/A in df[f'{target}_by_{category}_std'] with df[f'{target}_by_{category}_mu']
     return df
+
+def get_feature_by_grouping_on_cat(df: pd.DataFrame, categorys: list, target: str) -> pd.DataFrame:
+    """
+    Computes mean and std of a numeric target feature grouped by each category,
+    using only rows where df.target_mask == True, and merges the results back.
+    """
+    mask = df['target_mask'].eq(True)
+
+    for category in categorys:
+        group_stats = (
+            df[mask].groupby(category)[target].agg(['mean', 'std'])
+            .rename(columns={
+                'mean': f'{target}_by_{category}_mu',
+                'std': f'{target}_by_{category}_std'
+            })
+        )
+        df = df.merge(group_stats, on=category, how='left')
+
+        df[f'{target}_by_{category}_std'] = df[f'{target}_by_{category}_std'].fillna(
+            df[f'{target}_by_{category}_mu']
+        )
+    return df
+
 
 def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
     """
