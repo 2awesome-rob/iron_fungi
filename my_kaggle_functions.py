@@ -1187,16 +1187,11 @@ def get_feature_by_grouping_on_cat(df: pd.DataFrame, categorys: list, target: st
     Computes mean and std of a numeric target feature grouped by each category,
     using only rows where df.target_mask == True, and merges the results back.
     """
-    mask = df['target_mask'].eq(True)
-
-    for category in categorys:
-        group_stats = (
-            df[mask].groupby(category)[target].agg(['mean', 'std'])
-            .rename(columns={
-                'mean': f'{target}_by_{category}_mu',
-                'std': f'{target}_by_{category}_std'
-            })
-        )
+    for category in categorys: 
+        group_stats = df[df.target_mask.eq(True)].groupby(category)[target].agg(['mean', 'std']).rename(
+            columns={
+                'mean': f'{target}by{category}_mu',
+                'std': f'{target}by{category}_std'}) 
         df = df.merge(group_stats, on=category, how='left')
 
         df[f'{target}_by_{category}_std'] = df[f'{target}_by_{category}_std'].fillna(
