@@ -185,6 +185,10 @@ def load_tabular_data(path: str, id_feature: list=None,
     
     if extra_data != None:
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
+        if df_extra_training.shape[1] == 1 and csv_sep==',':
+            df_extra_training = pd.read_csv(f"{extra_data}", sep=";")
+        if df_extra_training.shape[1] == 1 and csv_sep==';':
+            df_extra_training = pd.read_csv(f"{extra_data}", sep=",")
         if rename_col is not None:
             df_extra_training.rename(columns=rename_col, inplace=True)
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
