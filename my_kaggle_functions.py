@@ -216,7 +216,7 @@ def load_tabular_data(path: str, id_feature: list=None,
 
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=8, verbose: bool=True):
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6, verbose: bool=True):
     """
     Adds category target "label" columns
     Useful for visualizing numeric targets in categorical "bins"
@@ -240,7 +240,7 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=8,
             print(f'Added label and qcut_label as categorical targets')
         return df, targets, "label"
     else:
-        print(f'NOTE: target is label is {target}')
+        print(f'NOTE: label is {target}')
         return df, targets, target
 
 # EDA functions
@@ -610,6 +610,7 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
     plt.show()
 
 def plot_feature_corr(df, features, target=None):
+    cmap = get_colors(get_cmap=True) #'cividis' default - coolwarm is also a good cmap
     plot_features = [f for f in features if
                      (df[f].dtype == int or df[f].dtype == float)]
     if target is not None:
@@ -621,11 +622,11 @@ def plot_feature_corr(df, features, target=None):
         fmt='.2f', 
         square=True,
         cbar=False,
-        cmap='cividis', #coolwarm is a good cmap
+        cmap=cmap, 
         vmin = -1, vmax = 1,
         linewidth=1, linecolor='white')
 
-    plt.xticks(())
+    #plt.xticks(())
     plt.xlabel("")
     plt.ylabel("")
     plt.show()
@@ -1169,19 +1170,6 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_feature_by_grouping_on_cat(df:pd.DataFrame, categorys:list, target:str,)->pd.DataFrame:
-    """
-    predicts the value and variance of a numeric target feature when grouped on a category
-    -------
-    requires: pandas
-    """
-    for category in categorys:
-        group_stats = df[df.target_mask.eq(True)].groupby(category)[target].agg(['mean', 'std']).rename(
-            columns={'mean': f'{target}_by_{category}_mu', 'std': f'{target}_by_{category}_std'})
-        df = df.merge(group_stats, on=category, how='left')
-        #TODO fill N/A in df[f'{target}_by_{category}_std'] with df[f'{target}_by_{category}_mu']
-    return df
-
 def get_feature_by_grouping_on_cat(df: pd.DataFrame, categorys: list, target: str) -> pd.DataFrame:
     """
     Computes mean and std of a numeric target feature grouped by each category,
@@ -1198,7 +1186,6 @@ def get_feature_by_grouping_on_cat(df: pd.DataFrame, categorys: list, target: st
             df[f'{target}_by_{category}_mu']
         )
     return df
-
 
 def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
     """
@@ -1600,7 +1587,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.f1_score(actual, predicted)
     elif metric in ['precision', 'classification_precision']:
         return skl.metrics.precision_score(actual, predicted)
-    elif metric in ['roc_auc', 'probability', 'probability_roc_auc', 'classification_roc_auc']:
+    elif metric in ['roc_auc', 'probability', 'probability_roc_auc', 'classification_roc_auc', 'probability_auc']:
         return skl.metrics.roc_auc_score(actual, predicted)
     elif metric in ['log_loss', 'probability_log_loss', 'classification_log_loss']:
         return skl.metrics.log_loss(actual, predicted)
@@ -2102,6 +2089,42 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     }
     return models, training_features
 
+def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
+                       models: list, task: str='regression', TargetTransformer=None, 
+                       path: str="", verbose: bool=True, )-> np.ndarray:
+    """
+    makes predictions with trained models and saves submission file
+    -----------
+    for each model in models, makes predictions with the model and averages predictions
+    saves predictions to submission file in path
+    -----------
+    requires: numpy, pandas, scikit learn
+    """
+    y_test = np.zeros(y.shape[0])
+
+    for m in models:
+        if task.startswith("probability"):
+             y_test += m.predict_proba(X)[:, 1]
+        else:
+             y_test += m.predict(X) 
+    y_test /= len(models)
+
+    if TargetTransformer == None:
+        y_pred = np.array(y_test).reshape(-1, 1) 
+    else:
+        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+
+    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
+    SUBMISSION[target] = y_pred
+    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
+
+    if verbose:
+        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
+
+    print("=" * 6, 'save success', "=" * 6, "\n")
+    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
+    return y_pred
+
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     task: str = "regression", folds: int = 7, meta_model=None,
                     TargetTransformer=None, verbose: bool = True):
@@ -2449,41 +2472,6 @@ def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dic
 
     return submission_df
 
-def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
-                       models: list, task: str='regression', TargetTransformer=None, 
-                       path: str="", verbose: bool=True, )-> np.ndarray:
-    """
-    makes predictions with trained models and saves submission file
-    -----------
-    for each model in models, makes predictions with the model and averages predictions
-    saves predictions to submission file in path
-    -----------
-    requires: numpy, pandas, scikit learn
-    """
-    y_test = np.zeros(y.shape[0])
-
-    for m in models:
-        if task.startswith("probability"):
-             y_test += m.predict_proba(X)[:, 1]
-        else:
-             y_test += m.predict(X) 
-    y_test /= len(models)
-
-    if TargetTransformer == None:
-        y_pred = np.array(y_test).reshape(-1, 1) 
-    else:
-        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
-
-    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
-    SUBMISSION[target] = y_pred
-    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
-
-    if verbose:
-        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
-
-    print("=" * 6, 'save success', "=" * 6, "\n")
-    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
-    return y_pred
 
 
 """
