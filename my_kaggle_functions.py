@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd 
 
 import torch
+import torch.nn as nn
 
 import sklearn as skl
 import lightgbm as lgb
@@ -1274,7 +1275,7 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
     print("Training embedding function...")
     if sample_size is not None:
         if sample_size < 1.0:
-            n = min(int(df[df.target_mask.eq(True)].shape[0] * sample_size), 10000)
+            n = min(int(df[df.target_mask.eq(True)].shape[0] * sample_size), 25000)
         else:
             n = min(int(df[df.target_mask.eq(True)].shape[0]), int(sample_size))
         df_sample = df[df.target_mask.eq(True)].sample(n=n, random_state=69)
@@ -1312,6 +1313,38 @@ def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sampl
         if target != None: X_features.drop(target, inplace = True, axis = 1)
         plt.show()
     return df.join(X_features)
+
+def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:int = 8, sample:int = 25000, verbose: bool = True) -> pd.DataFrame:
+    """
+    """
+    def _plot_embeddings(df, target):
+        df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        sns.scatterplot(data=df_plot, x=df_plot['umap_1'], y=df_plot['umap_2'], 
+                            hue=target, alpha = 0.7, ax=ax, legend=False)
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
+        plt.show()
+        return
+    
+    df_sample = df.sample(n=sample, random_state=69)
+    print("Training UMAP encoder...")
+    tic = time()
+    mapper = umap.UMAP(n_neighbors=8, low_memory=True,
+                       n_components=encode_dim).fit(df_sample[features])
+    print("UMAP encoding features...")
+    umap_reduced_data = mapper.transform(df[features])
+    toc = time()
+
+    print(f"Added {umap_reduced_data.shape[1]} UMAP embedding features in {tic-toc:.2f}sec")
+    cols = [("umap_" + str(i)) for i in range(umap_reduced_data.shape[1])]
+    umap_df = pd.DataFrame(umap_reduced_data, columns=cols)
+    df = df.join(umap_df)
+    if verbose:
+        _plot_embeddings(df, target)
+    return df
 
 def get_pls_embeddings(df: pd.DataFrame, features:list, target:list, col_names:str, 
                    sample_size: float=None, n_components:int=2, verbose=True) -> pd.DataFrame:
@@ -1598,7 +1631,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
                          Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
                          Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss', 'brier'""")
 
-def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> None:
+def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed_v=None)-> None:
     """
     plots training results with reference model for comparison
     -----------
@@ -1621,13 +1654,12 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
     
     base_model.fit(X_t[numeric_features], y_t)
     
-    #TODO for multiclass use classification
     if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
     
-    def plot_regression_resid(ax):
+    def _plot_regression_resid(ax):
         skl.metrics.PredictionErrorDisplay.from_predictions(y_v[:1000], y_base[:1000], kind = 'actual_vs_predicted',
                                                             scatter_kwargs={"color":'xkcd:gold', "alpha":0.8},
                                                             ax = ax)
@@ -1638,19 +1670,19 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         metric = 'rmse' if task=="regression" else task.split("_")[1]
         ax.set_title(f"Trained Model {calculate_score(y_v, y_p, metric = metric):.4f} vs Ridge {calculate_score(y_v, y_base, metric = metric):.4f} {metric.upper()}")
 
-    def plot_classification_cm(ax, predictions=y_p, title = "Trained", show_values=True):
+    def _plot_classification_cm(ax, predictions=y_p, title = "Trained", show_values=True):
         cmap='bone_r' if len(np.unique(predictions)) < 4 else 'cividis'
         skl.metrics.ConfusionMatrixDisplay.from_predictions(y_v, predictions, cmap=cmap, include_values=show_values,
                                                             normalize='all', colorbar=False, ax=ax)
         ax.invert_yaxis()
         ax.set_title(f"{title} Model Accuracy {100*calculate_score(y_v, predictions, metric = 'accuracy'):.1f}%")
 
-    def plot_classification_roc(ax):
+    def _plot_classification_roc(ax):
         skl.metrics.RocCurveDisplay.from_predictions(y_v, y_p, ax=ax, name="Trained Model")
         skl.metrics.RocCurveDisplay.from_predictions(y_v, y_base, name="GaussianNB", ax=ax)
         ax.set_title("ROC Curve")
 
-    def plot_distribution(ax, hist=True):
+    def _plot_distribution(ax, hist=True):
         if hist == True:
             ax.hist(y_v, bins=min(50,len(np.unique(y_v))), color='xkcd:silver', alpha=0.8, density = True)
             ax.hist(y_p, bins=min(50,len(np.unique(y_v))), color='xkcd:ocean blue', alpha=0.9, density = True)
@@ -1666,45 +1698,48 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression')-> Non
         ax.set_title("Prediction vs Training Distribution")
         ax.set_yticks([])
 
-    def plot_residuals(ax):
+    def _plot_residuals(ax):
         residuals = y_p - y_v
         ax.hist(residuals, bins=min(50,2+len(np.unique(residuals))), color='xkcd:dull green', alpha=0.9)
         ax.set_title("Residual Distribution")
         ax.set_yticks([])
         ax.set_ylabel("Count")
 
-    #TODO: Consider incorporation of a validation curve display 
-    #param_name, param_range = "C", np.logspace(-8, 3, 10)
-    #train_scores, test_scores = skl.model_selection.validation_curve(
-    #    model, X, y, param_name=param_name, param_range=param_range
-    #)
-    #display = skl.model_selection.ValidationCurveDisplay(
-    #    param_name=param_name, param_range=param_range,
-    #    train_scores=train_scores, test_scores=test_scores, score_name="Score"
-    #)
-    #display.plot()
-    #plt.show()
+    def _plot_embeddings(ax, proj, color_by, title, cmap='cividis'):
+        ax.scatter(proj[:, 0], proj[:, 1], c=color_by, cmap=cmap, s=5, alpha=0.7)
+        ax.set_title(title)
+        ax.axis('off')
 
-    fig = plt.figure(figsize=(9, 6))
-    gs = mpl.gridspec.GridSpec(2, 3, figure=fig)
+    col = 3 if embed_v is None else 4
+
+    fig = plt.figure(figsize=(3*col, 6))
+    gs = mpl.gridspec.GridSpec(2, col, figure=fig)
 
     if task.startswith("regression"):
-        plot_regression_resid(fig.add_subplot(gs[:, :2]))
-        plot_distribution(fig.add_subplot(gs[0, 2]))
-        plot_residuals(fig.add_subplot(gs[1, 2]))
-            
+        _plot_regression_resid(fig.add_subplot(gs[:, :2]))
+        _plot_distribution(fig.add_subplot(gs[0, 2]))
+        _plot_residuals(fig.add_subplot(gs[1, 2]))
+
     elif task.startswith("classification"):
-        plot_classification_cm(fig.add_subplot(gs[:, :2]))
-        plot_distribution(fig.add_subplot(gs[0, 2]), hist=False)
-        plot_classification_cm(fig.add_subplot(gs[1, 2]), 
+        _plot_classification_cm(fig.add_subplot(gs[:, :2]))
+        _plot_distribution(fig.add_subplot(gs[0, 2]), hist=False)
+        _plot_classification_cm(fig.add_subplot(gs[1, 2]), 
                                predictions = y_base, 
                                show_values=True if len(np.unique(y_v)) < 4 else False, 
                                title = "GaussianNB")
     
     elif task.startswith("probability"):
-        plot_classification_roc(fig.add_subplot(gs[:, :2]))
-        plot_distribution(fig.add_subplot(gs[0, 2]))
-        plot_classification_cm(fig.add_subplot(gs[1, 2]), predictions=np.round(y_p))
+        _plot_classification_roc(fig.add_subplot(gs[:, :2]))
+        _plot_distribution(fig.add_subplot(gs[0, 2]))
+        _plot_classification_cm(fig.add_subplot(gs[1, 2]), predictions=np.round(y_p))
+
+    if embed_v is not None:
+        pca_projection = skl.decomposition.PCA(n_components=2)
+        pca_proj = pca_projection.fit_transform(embed_v)
+        residuals = y_p - y_v
+        residuals = np.clip(residuals, np.percentile(residuals, 1), np.percentile(residuals, 99)) 
+        _plot_embeddings(fig.add_subplot(gs[0, 3]), pca_proj, y_v, "Embedding - Target")
+        _plot_embeddings(fig.add_subplot(gs[1, 3]), pca_proj, residuals, "Embedding - Residual", cmap='bwr')
 
     plt.tight_layout()
     plt.show()
@@ -2091,7 +2126,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
-                       path: str="", verbose: bool=True, )-> np.ndarray:
+                       path: str="", file: str="sample_submission.csv", verbose: bool=True, )-> pd.DataFrame:
     """
     makes predictions with trained models and saves submission file
     -----------
@@ -2114,20 +2149,20 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
 
-    SUBMISSION = pd.read_csv(f"{path}/sample_submission.csv")
-    SUBMISSION[target] = y_pred
-    SUBMISSION.to_csv('/kaggle/working/submission.csv', index=False)
+    submission_df = pd.read_csv(f"{path}/{file}")
+    submission_df[target] = y_pred
+    submission_df.to_csv(f'/kaggle/working/submission.csv', index=False)
 
     if verbose:
-        plot_target_eda(SUBMISSION, target, title = f"distribution of {target} predictions")
+        plot_target_eda(submission_df, target, title = f"distribution of {target} predictions")
 
     print("=" * 6, 'save success', "=" * 6, "\n")
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
-    return y_pred
+    return submission_df
 
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     task: str = "regression", folds: int = 7, meta_model=None,
-                    TargetTransformer=None, verbose: bool = True):
+                    TargetTransformer=None, verbose: bool = True, more_oof=None):
     """
     trains models with cross validation and returns trained models and a stacking meta model
     -----------
@@ -2163,8 +2198,15 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
     trained_models = {}
     model_names = list(models.keys())
     n_models = len(model_names)
+    extra_cols = 0
+    if more_oof is not None:
+        more_oof = more_oof.reshape(y.shape[0], -1)
+        extra_cols = more_oof.shape[1]
 
-    oof_matrix = np.zeros((y.shape[0], n_models))
+    oof_matrix = np.zeros((y.shape[0], n_models + extra_cols))
+
+    if extra_cols > 0:
+        oof_matrix[:, n_models:] = more_oof
     
     for i, (k, model) in enumerate(models.items()):
         print(f"Training Model: {k}")
@@ -2222,8 +2264,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     np.array(y_v_pred).reshape(-1, 1)
                 )
         score = calculate_score(y_all, oof_eval, metric=task)
-        print(f"Score:  {score:.4f}\n")
-        print(f"***  model {k} score:  {score:.4f}  ***")
+        print(f"***  model {k} final cv score:  {score:.4f}  ***")
 
         if verbose:
             # note: plotting last fold's X_t, X_v, y_t, y_v, and corresponding preds
@@ -2248,7 +2289,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', 
-                      TargetTransformer=None, meta_model=None,
+                      TargetTransformer=None, meta_model=None, extra_oof=None,
                       path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
     """
     makes predictions with cross validated models and returns predictions
@@ -2274,7 +2315,15 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     if meta_model is None:
         y_test = np.zeros(y.shape[0])
     else:
-        y_oof_matrix = np.zeros((y.shape[0], len(models.keys())))
+        extra_cols = 0
+        cols = len(models.keys())
+        if extra_oof is not None:
+            extra_oof = extra_oof.reshape(y.shape[0], -1)
+            extra_cols = extra_oof.shape[1]
+        y_oof_matrix = np.zeros((y.shape[0], cols + extra_cols))
+        if extra_cols > 0:
+            oof_matrix[:, cols:] = more_oof
+
     for i, (k, cv_models) in enumerate(models.items()):
         y_cv = np.zeros(y.shape[0])
         training_features = features[k]
@@ -2387,14 +2436,14 @@ def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, mo
         y_all = np.array(y).reshape(-1, 1)
 
         score = _calculate_score(y_all, oof_pred)
-        print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k} score:  {score:.4f}  ***")
+        print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k}  cv score:  {score:.4f}  ***")
 
     # ---- Stacking meta-model on OOF predictions ----
     tic=time()
     meta_model = skl.linear_model.LogisticRegression() if meta_model is None else meta_model
     print(f"Selected meta model is: {meta_model}")
     oof_matrix = oof_matrix.reshape(y.shape[0], -1)
-    print(f"Training Meta Model on {oof_matrix.shape[1]} OOF predictions and {y.shape[0]} samples")
+    print(f"Training Meta Model on {oof_matrix.shape[1]} OOF predictions and {y.shape[0]} samples...")
     meta_model.fit(oof_matrix, y)
     print(f"Meta Model training completed in {time()-tic:.2f}sec")
 
@@ -2472,6 +2521,326 @@ def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dic
 
     return submission_df
 
+# Neural Network
+# Neural Net -> build a nn feature extractor network
+class ResidualBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim),
+            nn.ReLU(),
+            nn.Linear(dim, dim),
+            nn.BatchNorm1d(dim)
+        )
+        self.activation = nn.ReLU()
+    def forward(self, X):
+        return self.activation(X + self.block(X))
+
+class NeuralNetRegressor(nn.Module):
+    def __init__(self, input_dim, embed_dim=256, dropout_rate=0.1, noise_scale = 0.002):
+        super().__init__()
+        self.noise_scale = nn.Parameter(torch.tensor(noise_scale)
+                                       )
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, 2*embed_dim),
+            nn.BatchNorm1d(2*embed_dim),
+            nn.ReLU(),
+            ResidualBlock(2*embed_dim),
+            nn.Linear(2*embed_dim, 2*embed_dim),
+            nn.GELU(),
+            nn.Linear(2*embed_dim, 2*embed_dim),
+            nn.GELU(),
+            nn.Linear(2*embed_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+            nn.ReLU(),
+            nn.Linear(embed_dim, embed_dim),
+            nn.BatchNorm1d(embed_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(embed_dim, embed_dim),
+        )
+        self.regressor = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.ReLU(),
+            nn.BatchNorm1d(embed_dim//2),
+            nn.Linear(embed_dim // 2, embed_dim // 2),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate/2),
+            nn.Linear(embed_dim // 2, 1),
+        )
+        self.embeddings = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim // 2),
+            nn.ReLU(),
+            nn.BatchNorm1d(embed_dim//2),
+            nn.Linear(embed_dim // 2, min(16, embed_dim // 4)),
+        )
+    
+    def __repr__(self):
+        return f"NeuralNetRegressor(embed_dim={self.encoder[-1].out_features})"
+    
+    def toggle_dropout(self, enable=True):
+        for module in self.modules():
+            if isinstance(module, nn.Dropout):
+                module.train(enable)
+
+    def encode(self, X, noise=True):
+        embed = self.encoder(X.float())
+        if noise:
+            embed += torch.randn_like(embed) * self.noise_scale
+        return embed
+
+    def get_embedding(self, X):
+        #return self.embeddings(self.encode(X, noise=False))
+        return self.encode(X, noise=False)
+    
+    def forward(self, X):
+        return self.regressor(self.encode(X, noise=True))
+
+    def predict(self, X):
+        return self.regressor(self.encode(X, noise=False))
+
+class CustomLoss(nn.Module):
+    def __init__(self, alpha=3.3):
+        super().__init__()
+        self.alpha = alpha
+        self.mse = nn.MSELoss()
+
+    def forward(self, y_pred, y_true):
+        return torch.sqrt(self.mse(y_pred, y_true))
+
+    def cosine_weighted_mse(self, y_pred, y_true):
+        with torch.no_grad():
+            weight = 1.1 + torch.cos(math.pi * (y_true - self.alpha) / self.alpha)
+        return torch.mean(weight * (y_pred - y_true) ** 2)
+
+    def tophat_weighted_mse(self, y_pred, y_true):
+        weight = (torch.abs(y_true) > 1).float()
+        return torch.mean(weight * (y_pred - y_true) ** 2)
+
+def train_and_score_nn_model(
+        X_train: pd.DataFrame, X_val:pd.DataFrame, y_train: pd.Series, y_val:pd.Series,
+        model, DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None, 
+        num_epochs: int=100, lr: float=2e-5, patience_limit: int=5, batch_size: int = 2048,
+        save_path = "/kaggle/working"): 
+    """
+    Trains a NeuralNetRegressor class instantiation
+    Returns:
+        model 
+        training_log_df for plotting 
+        best_model_state
+    """
+    best_loss, best_model_state, patience  = float('inf'), None, 0
+    training_log  = {}
+
+    def _get_batch(X, y, step, batch_size=batch_size, labels=None):
+        start = step * batch_size
+        end = min(start + batch_size, len(X))
+        if labels == None:
+            return X[start:end], y[start:end]
+        else:
+            return X[start:end], y[start:end], labels[start:end]
+        
+    model.to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+    reg_loss_fn = CustomLoss()
+
+    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
+    y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32).to(DEVICE)
+    X_val_tensor = torch.tensor(X_val.values, dtype=torch.float32).to(DEVICE)
+    
+    if TargetTransformer != None:
+        y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
+        y_v = TargetTransformer.inverse_transform(y_val.values.reshape(-1, 1))
+    else:
+        y_t = np.array(y_train).reshape(-1, 1)
+        y_v = np.array(y_val).reshape(-1, 1)
+
+    for epoch in range(num_epochs):
+        tick = time()
+        loss_totals = 0
+
+        perm = torch.randperm(X_train_tensor.size(0))
+        X_train_tensor, y_train_tensor = X_train_tensor[perm], y_train_tensor[perm]
+        model.train()
+        num_batches = (len(X_train_tensor) + batch_size - 1) // batch_size
+        
+        for batch in range(num_batches):
+            optimizer.zero_grad()
+            X_batch, y_batch = _get_batch(X_train_tensor, y_train_tensor, batch)
+            
+            predictions = model(X_batch).squeeze()
+            loss = reg_loss_fn(predictions, y_batch)
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+            
+            loss_totals += loss.item()
+        
+        scheduler.step()
+        total_loss = loss_totals / num_batches
+                
+        with torch.no_grad():
+            predictions = model.predict(X_val_tensor).squeeze().cpu().numpy()
+
+        if TargetTransformer != None:
+            y_p = TargetTransformer.inverse_transform(predictions.reshape(-1, 1))
+        else:
+            y_p = np.array(predictions).reshape(-1, 1)
+            
+        val_score = calculate_score(y_v, y_p, metric=task)
+        val_sigma = predictions.std()
+        
+        if verbose:
+            if epoch == 0 or (epoch + 1) % 5 == 0:
+                print("=" * 69)
+                print(f"Epoch {epoch+1} | Time: {time()-tick:.2f}s")
+                print(f" Val_RMSE: {val_score:.3f}, Pred μ: {predictions.mean():.3f}, σ: {val_sigma:.3f}")
+            if epoch == 0 or (epoch + 1) % 25 == 0:
+                embeddings = model.get_embedding(X_val_tensor).cpu().numpy()
+                plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
+
+        training_log[epoch + 1] = [total_loss, val_score, val_sigma,] 
+                
+        if total_loss < best_loss:
+            best_loss = total_loss
+            best_model_state = model.state_dict()
+            patience = 0
+        else:
+            patience += 1
+
+        if epoch > 10 and patience >= patience_limit:
+            print(f"Early stopping triggered. Best Epoch {epoch + 1 - patience}.")
+            break
+
+    model.load_state_dict(best_model_state)
+    if save_path is not None:
+        torch.save(model.state_dict(), f"{save_path}/regression_model.pt")
+        
+    training_log_df = pd.DataFrame.from_dict(
+        training_log, orient='index', columns=['training_loss', 'val_score', 'val_sigma'])
+
+    predictions = model.predict(X_val_tensor).squeeze().cpu().numpy()
+    if TargetTransformer != None:
+        y_p = TargetTransformer.inverse_transform(predictions.reshape(-1, 1))
+    else:
+        y_p = np.array(predictions).reshape(-1, 1)
+    print(f"***  model score:  {calculate_score(y_v, y_p, metric=task):.4f}  ***")
+
+    if verbose: 
+        embeddings = model.get_embedding(X_val_tensor).cpu().numpy()
+        plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
+
+    return model, training_log_df, best_model_state
+
+def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, DEVICE,
+                    task: str = "regression", folds: int = 7,
+                    num_epochs=100, lr=1e-4, batch_size=2048, save_path=None,
+                    TargetTransformer=None, verbose: bool = True):
+    
+    df = _df[_df.target_mask.eq(True)]
+    X=df[features].astype(np.float32)
+    y=df[target].astype(np.float32)
+    oof_preds = np.zeros(len(y))
+    training_logs, cv_models = [], []
+    print(f"Training NN Model...")
+
+    if task.startswith("regression"):
+        cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69)
+    else:
+        cv = skl.model_selection.StratifiedKFold(n_splits=folds, shuffle=True, random_state=42)
+    
+    for fold, (train_idx, val_idx) in tqdm(enumerate(cv.split(X)), desc="training models", unit="folds"):
+        X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
+        X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
+
+        model = model_fn(X.shape[1])
+        verbosisty = False if fold != folds-1 else verbose
+        model, log_df, _ = train_nn_model(X_train, X_val,  y_train, y_val, model,
+                                        task=task, verbose=verbosisty, TargetTransformer=TargetTransformer, 
+                                        num_epochs=num_epochs, lr=lr, batch_size=batch_size,
+                                        save_path=save_path)
+ 
+        with torch.no_grad():
+            val_tensor = torch.tensor(X_val.values, dtype=torch.float32).to(DEVICE)
+            preds = model.predict(val_tensor).squeeze().cpu().numpy()
+            oof_preds[val_idx] = preds
+
+        training_logs.append(log_df.assign(fold=fold+1))
+        cv_models.append(model)
+
+        score = calculate_score(y, oof_preds, metric=task)
+        print(f"***  final model cv score:  {score:.4f}  ***")
+
+    return cv_models, pd.concat(training_logs), oof_preds
+
+def get_nn_predictions(X, models, batch_size, DEVICE):
+    def _get_batch(df, step, batch_size=batch_size):
+        start = step * batch_size
+        end = min(start + batch_size, len(df))
+        return df[start:end]
+
+    features = torch.tensor(X.values, dtype=torch.float32).to(DEVICE)
+    batches = 1 + len(features) // batch_size
+    predictions = np.zeros(len(X), dtype=np.float32)
+    for model in models:
+        model_predictions = []
+        with torch.no_grad():
+            for batch in range(batches):
+                feature = _get_batch(features, batch)
+                pred = model(feature).cpu().numpy().flatten()
+                model_predictions.extend(pred)
+        predictions += np.array(model_predictions)
+    predictions /= len(models)
+    y_pred = predictions.ravel()
+
+    return y_pred
+
+def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:str, 
+                      models: list, DEVICE, task: str='regression', TargetTransformer=None, batch_size=4096,
+                      path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
+    """
+    makes predictions with cross validated models and returns predictions
+    -----------
+    for each model in models, makes predictions with each fold model and averages predictions for each model
+    averages predictions across models to get final predictions
+    returns a array of predictions for submission
+    -----------
+    requires: numpy, pandas, scikit learn
+    optional: lightgbm, xgboost, catboost
+    """
+    def _plot_target(df, target=target, title=f'predicted {target} distribution', hist=10):
+        if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
+            sns.histplot(df[target], 
+                         bins = min(df[target].nunique(), 42),  # limit number of bins for large unique value counts
+                         kde = True)
+        else:
+            sns.countplot(data=df, x=target)
+        plt.title(title)
+        plt.yticks([])
+        plt.show()
+
+    y_test = get_nn_predictions(X, models, batch_size, DEVICE)
+
+    if TargetTransformer is None:
+        y_pred = np.array(y_test).reshape(-1, 1)
+    else:
+        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+    
+    submission_df = pd.read_csv(f"{path}/{file}")
+    submission_df[target] = y_pred
+    submission_df.to_csv('/kaggle/working/submission.csv', index=False)
+
+    if verbose:
+        _plot_target(submission_df)
+
+    print("=" * 6, 'save success', "=" * 6, "\n")
+    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
+
+    return submission_df
 
 
 """
