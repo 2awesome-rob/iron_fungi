@@ -16,6 +16,10 @@ import lightgbm as lgb
 import xgboost as xgb
 import catboost as catb
 
+#import hdbscan
+import umap
+
+
 from scipy import stats
 import math
 import random
@@ -2647,9 +2651,9 @@ def train_and_score_nn_model(
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
     reg_loss_fn = CustomLoss()
 
-    X_train_tensor = torch.tensor(X_train.values, dtype=torch.float32).to(DEVICE)
-    y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32).to(DEVICE)
-    X_val_tensor = torch.tensor(X_val.values, dtype=torch.float32).to(DEVICE)
+    X_train_tensor = torch.tensor(X_train.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
+    y_train_tensor = torch.tensor(y_train.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
+    X_val_tensor = torch.tensor(X_val.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
     
     if TargetTransformer != None:
         y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
@@ -2783,7 +2787,7 @@ def get_nn_predictions(X, models, batch_size, DEVICE):
         end = min(start + batch_size, len(df))
         return df[start:end]
 
-    features = torch.tensor(X.values, dtype=torch.float32).to(DEVICE)
+    features = torch.tensor(X.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
     batches = 1 + len(features) // batch_size
     predictions = np.zeros(len(X), dtype=np.float32)
     for model in models:
