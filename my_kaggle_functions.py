@@ -2707,7 +2707,7 @@ def train_and_score_nn_model(
                 print(f"Epoch {epoch+1} | Time: {time()-tick:.2f}s")
                 print(f" Val_RMSE: {val_score:.3f}, Pred μ: {predictions.mean():.3f}, σ: {val_sigma:.3f}")
             if epoch == 0 or (epoch + 1) % 25 == 0:
-                embeddings = model.get_embedding(X_val_tensor).cpu().numpy()
+                embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
                 plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
 
         training_log[epoch + 1] = [total_loss, val_score, val_sigma,] 
