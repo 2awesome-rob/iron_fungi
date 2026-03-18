@@ -813,7 +813,6 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
     else:
         print(f"Object features: {[f for f in features if f not in features_alt]}")
 
-
 # Data cleaning 
 def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, reset_index: bool=False, verbose: bool=True) -> pd.DataFrame:
     """
@@ -2581,7 +2580,7 @@ class NeuralNetRegressor(nn.Module):
             nn.Linear(embed_dim, embed_dim // 2),
             nn.ReLU(),
             nn.BatchNorm1d(embed_dim//2),
-            nn.Linear(embed_dim // 2, min(16, embed_dim // 4)),
+            nn.Linear(embed_dim // 2, 16)
         )
     
     def __repr__(self):
@@ -2598,9 +2597,9 @@ class NeuralNetRegressor(nn.Module):
             embed += torch.randn_like(embed) * self.noise_scale
         return embed
 
+    @torch.no_grad()
     def get_embedding(self, X):
-        #return self.embeddings(self.encode(X, noise=False))
-        return self.encode(X, noise=False)
+        return self.embeddings(self.encode(X, noise=False))
     
     def forward(self, X):
         return self.regressor(self.encode(X, noise=True))
@@ -2672,8 +2671,8 @@ def train_and_score_nn_model(
         perm = torch.randperm(X_train_tensor.size(0))
         X_train_tensor, y_train_tensor = X_train_tensor[perm], y_train_tensor[perm]
         model.train()
-        num_batches = (len(X_train_tensor) + batch_size - 1) // batch_size
-        
+        num_batches = math.ceil(len(X_train_tensor) / batch_size)
+
         for batch in range(num_batches):
             optimizer.zero_grad()
             X_batch, y_batch = _get_batch(X_train_tensor, y_train_tensor, batch)
@@ -2741,7 +2740,7 @@ def train_and_score_nn_model(
         embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
         plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
 
-    return model, training_log_df, best_model_state
+    return model, training_log_df, y_p
 
 def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, DEVICE,
                     task: str = "regression", folds: int = 7,
@@ -2766,7 +2765,7 @@ def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, 
 
         model = model_fn(X.shape[1])
         verbosisty = False if fold != folds-1 else verbose
-        model, log_df, _ = train_and_score_nn_model(X_train, X_val,  y_train, y_val, model,
+        model, log_df, _ = train_and_score_nn_model(X_train, X_val,  y_train, y_val, model, DEVICE,
                                         task=task, verbose=verbosisty, TargetTransformer=TargetTransformer, 
                                         num_epochs=num_epochs, lr=lr, batch_size=batch_size,
                                         save_path=save_path)
@@ -2784,27 +2783,39 @@ def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, 
 
     return cv_models, pd.concat(training_logs), oof_preds
 
-def get_nn_predictions(X, models, batch_size, DEVICE):
-    def _get_batch(df, step, batch_size=batch_size):
+def get_nn_predictions(X, models, batch_size, DEVICE, get_embed=False):
+    def _get_batch(tensor, step):
         start = step * batch_size
-        end = min(start + batch_size, len(df))
-        return df[start:end]
+        end = min(start + batch_size, len(tensor))
+        return tensor[start:end]
 
-    features = torch.tensor(X.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
-    batches = 1 + len(features) // batch_size
+    features = torch.tensor(X.values.astype(np.float32)).to(DEVICE)
+    batches = math.ceil(len(features) / batch_size)
     predictions = np.zeros(len(X), dtype=np.float32)
+    if get_embed:
+        embeddings = np.zeros((len(X), 17), dtype=np.float32)
+
     for model in models:
         model_predictions = []
-        with torch.no_grad():
-            for batch in range(batches):
-                feature = _get_batch(features, batch)
-                pred = model(feature).cpu().numpy().flatten()
-                model_predictions.extend(pred)
-        predictions += np.array(model_predictions)
-    predictions /= len(models)
-    y_pred = predictions.ravel()
 
-    return y_pred
+        with torch.no_grad():
+            for b in range(batches):
+                batch = _get_batch(features, b)
+                pred = model(batch).cpu().numpy().flatten()
+                model_predictions.extend(pred)
+            if get_embed:
+                emb = model.get_embedding(features).detach().cpu().numpy()
+                embeddings[:, 1:] += emb
+
+        predictions += np.array(model_predictions)
+
+    if get_embed:
+        embeddings[:, 0] = predictions
+        embeddings /= len(models)
+        return embeddings
+
+    predictions /= len(models)
+    return predictions
 
 def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:str, 
                       models: list, DEVICE, task: str='regression', TargetTransformer=None, batch_size=4096,
@@ -2848,6 +2859,43 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
 
     return submission_df
+
+def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
+                        model, DEVICE, task='regression',
+                        batch_size=1024, folds=7) -> pd.DataFrame:
+
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    X = df.loc[mask, features]
+    y = df.loc[mask, target]
+    X_test = df.loc[~mask, features]
+
+    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69)
+    y_hint = np.zeros((len(df), 17), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
+
+    models = []
+    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+        m, _, _ = train_and_score_nn_model(
+            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=20
+        )
+
+        preds = get_nn_predictions(
+            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+        y_hint[X.index[val_idx], :] = preds
+        models.append(m)
+
+    if len(X_test) > 0:
+        preds_test = get_nn_predictions(
+            X_test, models, batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+        y_hint[X_test.index, :] = preds_test
+
+    cols = ["nn_hint"] + [f"nn_embed_{i}" for i in range(16)]
+    df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
+    df = pd.concat([df, df_hint], axis=1)
+
+    return df
 
 
 """
