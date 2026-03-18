@@ -1343,7 +1343,7 @@ def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:
     umap_reduced_data = mapper.transform(df[features])
     toc = time()
 
-    print(f"Added {umap_reduced_data.shape[1]} UMAP embedding features in {tic-toc:.2f}sec")
+    print(f"Added {umap_reduced_data.shape[1]} UMAP embedding features in {toc-tic:.2f}sec")
     cols = [("umap_" + str(i)) for i in range(umap_reduced_data.shape[1])]
     umap_df = pd.DataFrame(umap_reduced_data, columns=cols)
     df = df.join(umap_df)
@@ -2730,7 +2730,7 @@ def train_and_score_nn_model(
     training_log_df = pd.DataFrame.from_dict(
         training_log, orient='index', columns=['training_loss', 'val_score', 'val_sigma'])
 
-    predictions = model.predict(X_val_tensor).squeeze().cpu().numpy()
+    predictions = model.predict(X_val_tensor).squeeze().detach().cpu().numpy()
     if TargetTransformer != None:
         y_p = TargetTransformer.inverse_transform(predictions.reshape(-1, 1))
     else:
@@ -2738,7 +2738,7 @@ def train_and_score_nn_model(
     print(f"***  model score:  {calculate_score(y_v, y_p, metric=task):.4f}  ***")
 
     if verbose: 
-        embeddings = model.get_embedding(X_val_tensor).cpu().numpy()
+        embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
         plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
 
     return model, training_log_df, best_model_state
@@ -2766,7 +2766,7 @@ def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, 
 
         model = model_fn(X.shape[1])
         verbosisty = False if fold != folds-1 else verbose
-        model, log_df, _ = train_nn_model(X_train, X_val,  y_train, y_val, model,
+        model, log_df, _ = train_and_score_nn_model(X_train, X_val,  y_train, y_val, model,
                                         task=task, verbose=verbosisty, TargetTransformer=TargetTransformer, 
                                         num_epochs=num_epochs, lr=lr, batch_size=batch_size,
                                         save_path=save_path)
