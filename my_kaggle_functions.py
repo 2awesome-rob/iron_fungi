@@ -1322,10 +1322,11 @@ def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:
     """
     """
     def _plot_embeddings(df, target):
+        palette = get_colors(df[target].unique(), get_cmap=True)
         df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
         fig, ax = plt.subplots(figsize=(5, 3))
         sns.scatterplot(data=df_plot, x=df_plot['umap_1'], y=df_plot['umap_2'], 
-                            hue=target, alpha = 0.7, ax=ax, legend=False)
+                            hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
         plt.xticks(())
         plt.yticks(())
         plt.xlabel("")
@@ -2543,9 +2544,11 @@ class ResidualBlock(nn.Module):
 
 class NeuralNetRegressor(nn.Module):
     def __init__(self, input_dim, embed_dim=256, dropout_rate=0.1, noise_scale = 0.002):
+        self.embed_dim = embed_dim
+
         super().__init__()
-        self.noise_scale = nn.Parameter(torch.tensor(noise_scale)
-                                       )
+        self.noise_scale = noise_scale
+                                       
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 2*embed_dim),
             nn.BatchNorm1d(2*embed_dim),
@@ -2582,12 +2585,12 @@ class NeuralNetRegressor(nn.Module):
         )
     
     def __repr__(self):
-        return f"NeuralNetRegressor(embed_dim={self.encoder[-1].out_features})"
+        return f"NeuralNetRegressor(embed_dim={self.embed_dim})"
     
     def toggle_dropout(self, enable=True):
-        for module in self.modules():
-            if isinstance(module, nn.Dropout):
-                module.train(enable)
+        for m in self.modules():
+            if isinstance(m, nn.Dropout):
+                m.p = m.p if enable else 0.0
 
     def encode(self, X, noise=True):
         embed = self.encoder(X.float())
