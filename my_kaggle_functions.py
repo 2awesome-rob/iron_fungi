@@ -275,7 +275,6 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     plt.show()
 
 def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str=None, 
-                      sample: int=1000, y_min: float=None, y_max: float=None,
                       high_label = "", low_label = "") -> None:
     """ 
     supports feature EDA with numeric targets
@@ -298,6 +297,10 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     """
     MY_PALETTE = get_colors()
     SEED = 67
+    sample=1000
+    y_min=None
+    y_max=None
+
     df = df_[df_.target_mask.eq(True)]
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
@@ -337,10 +340,11 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
 
     ### scatterplot with trendline for numerical feature relationship to numeric target (num plot 1N)
     def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
-        df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
-        sns.regplot(data=df_sampled, x=feature, y=target, ax=ax,
+        df_scatter = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
+        sns.regplot(data=df_scatter, x=feature, y=target, ax=ax,
                     scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
-        sns.lineplot(data=df_sampled, x=feature, y=target, ax=ax, 
+        df_line = df.sample(n=min(int(sample/5), df.shape[0]), random_state=SEED)
+        sns.lineplot(data=df_line, x=feature, y=target, ax=ax, 
                      color='xkcd:rust', linewidth=1)
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
@@ -2343,7 +2347,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
 def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
                       models: dict, task: str='regression', 
-                      TargetTransformer=None, meta_model=None, extra_oof=None,
+                      TargetTransformer=None, meta_model=None, more_oof=None,
                       path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
     """
     makes predictions with cross validated models and returns predictions
@@ -2371,12 +2375,12 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     else:
         extra_cols = 0
         cols = len(models.keys())
-        if extra_oof is not None:
-            extra_oof = extra_oof.reshape(y.shape[0], -1)
-            extra_cols = extra_oof.shape[1]
+        if more_oof is not None:
+            more_oof = more_oof.reshape(y.shape[0], -1)
+            extra_cols = more_oof.shape[1]
         y_oof_matrix = np.zeros((y.shape[0], cols + extra_cols))
         if extra_cols > 0:
-            oof_matrix[:, cols:] = more_oof
+            y_oof_matrix[:, cols:] = more_oof
 
     for i, (k, cv_models) in enumerate(models.items()):
         y_cv = np.zeros(y.shape[0])
@@ -2802,7 +2806,7 @@ def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, D
     X = df.loc[mask, features]
     y = df.loc[mask, target]
     X_test = df.loc[~mask, features]
-    test_tensor = torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+    test_tensor = torch.tensor(X_test.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
             
     oof_preds = np.zeros(len(df))
     training_logs, cv_models = [], []
@@ -2825,7 +2829,7 @@ def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, D
                                         save_path=save_path)
  
         with torch.no_grad():
-            val_tensor = torch.tensor(X_val.values, dtype=torch.float32).to(DEVICE)
+            val_tensor = torch.tensor(X_val.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
             preds = model.predict(val_tensor).squeeze().cpu().numpy()
             oof_preds[val_idx] = preds
             test_preds = model.predict(test_tensor).squeeze().cpu().numpy()
