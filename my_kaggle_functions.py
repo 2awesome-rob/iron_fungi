@@ -87,7 +87,7 @@ def set_globals(seed: int = 67, verbose: bool=True):
     return DEVICE, CORES 
 
 def get_colors(color_keys: list=None, get_cmap: bool=False, 
-                cmap_name: str='cividis', n_hues: int=1, n_sats: int=1):
+                cmap_name: str='cividis', n_hues: int=5, n_sats: int=5):
     """
     generates a color map or palette for visualizations
     -----------
@@ -1209,7 +1209,7 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
             print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
-def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, task:str='regression') -> pd.DataFrame:
+def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, index_id: str="1", task: str='regression') -> pd.DataFrame:
     """
     adds new features using by generating “hint” features via cross‑validated out‑of‑fold predictions and ensembles.
     -------
@@ -1221,42 +1221,91 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, tas
     """
     mask = df.get("target_mask", pd.Series(True, index=df.index))
     X = df.loc[mask, features]
+    X_test = df.loc[~mask, features]
     y = df.loc[mask, target]
 
     if task.startswith('regression'):
-        cv = skl.model_selection.KFold(n_splits=7, shuffle=True, random_state=69)
+        cv = skl.model_selection.KFold(n_splits=7, shuffle=True, random_state=80085)
         base_model = skl.linear_model.Ridge() if model is None else model
         y_hint = np.zeros(len(df))
-        y_ens = np.zeros(len(df)) 
     else:
         cats = y.unique()
-        cv = skl.model_selection.StratifiedKFold(n_splits=7, shuffle=True, random_state=69)
+        cv = skl.model_selection.StratifiedKFold(n_splits=7, shuffle=True, random_state=80085)
         base_model = skl.naive_bayes.GaussianNB() if model is None else model
         y_hint = np.zeros((len(df), len(cats)))
-        y_ens = np.zeros((len(df), len(cats)))
 
     models = []
-    for fold, (train_idx, val_idx) in tqdm(enumerate(cv.split(X, y)), total=cv.get_n_splits()):
+    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
         m = base_model 
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
         m.fit(X_train, y_train)
         if task.startswith('regression'):
-            y_hint[mask.index[val_idx]] = m.predict(X_val)
-            y_ens += m.predict(df[features])
+            y_hint[X.index[val_idx]] = m.predict(X_val)
+            y_hint[X_test.index] += m.predict(X_test) / 7
         else:
-            y_hint[mask.index[val_idx], :] = m.predict_proba(X_val)
-            y_ens += m.predict_proba(df[features])
-    y_ens /= len(models)
+            y_hint[X.index[val_idx], :] = m.predict_proba(X_val)
+            y_hint[X_test.index, :] += m.predict_proba(X_test) / 7
+        models.append(m)
+
     if task.startswith('regression'):
-        df["hint"] = y_hint
-        df["hint"] = df["hint"].fillna(pd.Series(y_ens, index=df.index))
+        df[f"hint_{index_id}"] = y_hint
     else:
-        cols = [f"hint_{cat}" for cat in cats]
+        cols = [f"hint_{index_id}_{cat}" for cat in cats]
         df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
-        df_ens = pd.DataFrame(y_ens, index=df.index, columns=cols)
-        df_hint = df_hint.fillna(df_ens)
         df = pd.concat([df, df_hint], axis=1)
+
+    return df
+
+def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
+                        model, DEVICE, task='regression', index_id:str="1",
+                        batch_size=1024, folds=7, verbose:bool=True) -> pd.DataFrame:
+    """
+    """
+    def _plot_embeddings(df, target):
+        palette = get_colors(df[target].unique(), get_cmap=True)
+        df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        sns.scatterplot(data=df_plot, x=df_plot[f"nn_{index_id}_embed_0]"], y=df_plot[f"nn_{index_id}_embed_1"], 
+                            hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
+        plt.show()
+        return
+
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    X = df.loc[mask, features]
+    y = df.loc[mask, target]
+    X_test = df.loc[~mask, features]
+
+    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69)
+    y_hint = np.zeros((len(df), 17), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
+
+    models = []
+    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+        m, _, _ = train_and_score_nn_model(
+            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=20
+        )
+
+        preds = get_nn_predictions(
+            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+        y_hint[X.index[val_idx], :] = preds
+        models.append(m)
+
+    if len(X_test) > 0:
+        preds_test = get_nn_predictions(
+            X_test, models, batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+        y_hint[X_test.index, :] = preds_test
+
+    cols = [f"nn_{index_id}_hint"] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
+    df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
+    if verbose: _plot_embeddings(df_hint, target)
+    df = pd.concat([df, df_hint], axis=1)
 
     return df
 
@@ -2742,15 +2791,19 @@ def train_and_score_nn_model(
 
     return model, training_log_df, y_p
 
-def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, DEVICE,
+def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, DEVICE,
                     task: str = "regression", folds: int = 7,
                     num_epochs=100, lr=1e-4, batch_size=2048, save_path=None,
                     TargetTransformer=None, verbose: bool = True):
-    
-    df = _df[_df.target_mask.eq(True)]
-    X=df[features].astype(np.float32)
-    y=df[target].astype(np.float32)
-    oof_preds = np.zeros(len(y))
+    """
+    """
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    X = df.loc[mask, features]
+    y = df.loc[mask, target]
+    X_test = df.loc[~mask, features]
+    test_tensor = torch.tensor(X_test.values, dtype=torch.float32).to(DEVICE)
+            
+    oof_preds = np.zeros(len(df))
     training_logs, cv_models = [], []
     print(f"Training NN Model...")
 
@@ -2774,11 +2827,13 @@ def cv_train_nn_model(_df: pd.DataFrame, features: list, target: str, model_fn, 
             val_tensor = torch.tensor(X_val.values, dtype=torch.float32).to(DEVICE)
             preds = model.predict(val_tensor).squeeze().cpu().numpy()
             oof_preds[val_idx] = preds
+            test_preds = model.predict(test_tensor).squeeze().cpu().numpy()
+            oof_preds[X_test.index] += test_preds / folds
 
         training_logs.append(log_df.assign(fold=fold+1))
         cv_models.append(model)
 
-        score = calculate_score(y, oof_preds, metric=task)
+        score = calculate_score(y, oof_preds[y.index], metric=task)
         print(f"***  final model cv score:  {score:.4f}  ***")
 
     return cv_models, pd.concat(training_logs), oof_preds
@@ -2859,43 +2914,6 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
 
     return submission_df
-
-def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
-                        model, DEVICE, task='regression',
-                        batch_size=1024, folds=7) -> pd.DataFrame:
-
-    mask = df.get("target_mask", pd.Series(True, index=df.index))
-    X = df.loc[mask, features]
-    y = df.loc[mask, target]
-    X_test = df.loc[~mask, features]
-
-    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69)
-    y_hint = np.zeros((len(df), 17), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
-
-    models = []
-    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
-        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-
-        m, _, _ = train_and_score_nn_model(
-            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=20
-        )
-
-        preds = get_nn_predictions(
-            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
-        y_hint[X.index[val_idx], :] = preds
-        models.append(m)
-
-    if len(X_test) > 0:
-        preds_test = get_nn_predictions(
-            X_test, models, batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
-        y_hint[X_test.index, :] = preds_test
-
-    cols = ["nn_hint"] + [f"nn_embed_{i}" for i in range(16)]
-    df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
-    df = pd.concat([df, df_hint], axis=1)
-
-    return df
 
 
 """
