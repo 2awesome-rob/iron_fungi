@@ -1266,7 +1266,7 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
         palette = get_colors(df[target].unique(), get_cmap=True)
         df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
         fig, ax = plt.subplots(figsize=(5, 3))
-        sns.scatterplot(data=df_plot, x=df_plot[f"nn_{index_id}_embed_0]"], y=df_plot[f"nn_{index_id}_embed_1"], 
+        sns.scatterplot(data=df_plot, x=df_plot[f"nn_{index_id}_embed_0"], y=df_plot[f"nn_{index_id}_embed_1"], 
                             hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
         plt.xticks(())
         plt.yticks(())
