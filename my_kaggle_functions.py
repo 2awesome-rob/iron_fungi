@@ -1209,7 +1209,7 @@ def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> p
             print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
-def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, index_id: str="1", task: str='regression') -> pd.DataFrame:
+def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, folds=7, index_id: str="1", task: str='regression') -> pd.DataFrame:
     """
     adds new features using by generating “hint” features via cross‑validated out‑of‑fold predictions and ensembles.
     -------
@@ -1225,12 +1225,12 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, ind
     y = df.loc[mask, target]
 
     if task.startswith('regression'):
-        cv = skl.model_selection.KFold(n_splits=7, shuffle=True, random_state=80085)
+        cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=80085)
         base_model = skl.linear_model.Ridge() if model is None else model
         y_hint = np.zeros(len(df))
     else:
         cats = y.unique()
-        cv = skl.model_selection.StratifiedKFold(n_splits=7, shuffle=True, random_state=80085)
+        cv = skl.model_selection.StratifiedKFold(n_splits=folds, shuffle=True, random_state=80085)
         base_model = skl.naive_bayes.GaussianNB() if model is None else model
         y_hint = np.zeros((len(df), len(cats)))
 
@@ -1280,7 +1280,7 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
     y = df.loc[mask, target]
     X_test = df.loc[~mask, features]
 
-    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=69)
+    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=67)
     y_hint = np.zeros((len(df), 17), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
 
     models = []
@@ -1304,9 +1304,10 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
 
     cols = [f"nn_{index_id}_hint"] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
     df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
-    if verbose: _plot_embeddings(df_hint, target)
+    
     df = pd.concat([df, df_hint], axis=1)
-
+    
+    if verbose: _plot_embeddings(df, target)
     return df
 
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
