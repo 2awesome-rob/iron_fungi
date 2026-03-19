@@ -304,8 +304,8 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     df = df_[df_.target_mask.eq(True)]
     ### Histogram for distribution of numeric feature (num plot 0)
     def _plot_num_distribution(ax, feature):
-        bins = min(50, df[feature].nunique())
-        sns.histplot(df[feature], ax=ax, bins = bins, discrete=True)
+        #bins = min(50, df[feature].nunique())
+        sns.histplot(df[feature], ax=ax, discrete=True) #bins = bins
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
