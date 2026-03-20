@@ -1297,7 +1297,11 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
     X_test = df.loc[~mask, features]
 
     cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=67)
-    y_hint = np.zeros((len(df), 17), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
+    if "top_k" in task:
+        print("Not ready for multiclass probabilities....yet!")
+        #hints = 1 if "top_k" not in task else y.nunique()
+    hints = 1 #TODO update get_nn_predictions to support getting multiclass probabilities returned
+    y_hint = np.zeros((len(df), hints + 16), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
 
     models = []
     for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
@@ -1318,7 +1322,7 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
             X_test, models, batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
         y_hint[X_test.index, :] = preds_test
 
-    cols = [f"nn_{index_id}_hint"] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
+    cols = [f"nn_{index_id}_hint_{i}" for i in range(hints)] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
     df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
     
     df = pd.concat([df, df_hint], axis=1)
