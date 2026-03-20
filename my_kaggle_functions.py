@@ -2608,15 +2608,26 @@ class ResidualBlock(nn.Module):
         return self.activation(X + self.block(X))
 
 class NeuralNetModel(nn.Module):
-    def __init__(self, input_dim, task="regression", embed_dim=256,
-                 class_dim=2, dropout_rate=0.1, noise_scale=0.002):
+    def __init__(self, input_dim, task="regression",
+                 embed_dim=256, num_classes=None, 
+                 dropout_rate=0.1, noise_scale=0.002):
 
         super().__init__()
         self.embed_dim = embed_dim
         self.task = task
         self.noise_scale = noise_scale
+        self.num_classes = num_classes
+        
+        if "ordinal" in task:
+            self.output_dim = num_classes - 1
+        elif task.startswith("classification") or task.startswith("probability"):
+            self.output_dim = 1 if num_classes <=2 else num_classes
+        else:
+            self.output_dim = 1
+        
+        if "ordinal" in task and self.output_dim <= 1:
+            raise ValueError("Ordinal task requires output_dim >= 2 (i.e., at least 3 classes).")
 
-                                       
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 2*embed_dim),
             nn.BatchNorm1d(2*embed_dim),
@@ -2631,54 +2642,24 @@ class NeuralNetModel(nn.Module):
             nn.Linear(embed_dim, embed_dim),
             nn.LeakyReLU(),
             nn.Linear(embed_dim, embed_dim),
-            nn.BatchNorm1d(embed_dim),
             nn.LeakyReLU(),
             nn.Dropout(dropout_rate),
-            nn.Linear(embed_dim, embed_dim),
-        )
-        self.regressor = nn.Sequential(
             nn.Linear(embed_dim, embed_dim // 2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.BatchNorm1d(embed_dim // 2),
             nn.Linear(embed_dim // 2, 16),
-            nn.ReLU(),
-            nn.Dropout(dropout_rate / 2),
-            nn.Linear(16, 1),
+        )
+        # prediction head: raw logits (1D for regression or binary classification)
+        self.predictor = nn.Sequential(
+            nn.Linear(16, 16),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout_rate / 4),
+            nn.Linear(16, self.output_dim),
         )
 
-        if class_dim == 1:
-            self.classifier = nn.Sequential(
-                nn.Linear(embed_dim, embed_dim // 2),
-                nn.ReLU(),
-                nn.BatchNorm1d(embed_dim // 2),
-                nn.Linear(embed_dim // 2, 16),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate / 2),
-                nn.Linear(16, 1),
-                nn.Sigmoid()
-            )
-        else:
-            self.classifier = nn.Sequential(
-                nn.Linear(embed_dim, embed_dim // 2),
-                nn.ReLU(),
-                nn.BatchNorm1d(embed_dim // 2),
-                nn.Linear(embed_dim // 2, 16),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate / 2),
-                nn.Linear(16, class_dim),
-                nn.Softmax(dim=1)
-            )
-
-        self.embeddings = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim // 2),
-            nn.ReLU(),
-            nn.BatchNorm1d(embed_dim//2),
-            nn.Linear(embed_dim // 2, 16)
-        )
-    
     def __repr__(self):
-        return f"NeuralNetModel(task={self.task}, embed_dim={self.embed_dim})"
-    
+        return f"NeuralNetModel(task={self.task}, embed_dim={self.embed_dim}, output_dim={self.output_dim})"
+
     def toggle_dropout(self, enable=True):
         for m in self.modules():
             if isinstance(m, nn.Dropout):
@@ -2692,23 +2673,27 @@ class NeuralNetModel(nn.Module):
 
     @torch.no_grad()
     def get_embedding(self, X):
-        return self.embeddings(self.encode(X, noise=False))
-    
+        return self.encode(X, noise=False)
+
     def forward(self, X):
-        if self.task == "regression":
-            return self.regressor(self.encode(X, noise=True))
-        else:
-            return self.classifier(self.encode(X, noise=True))
+        z = self.encode(X, noise=True)
+        return self.predictor(z)
 
     def predict(self, X):
-        if self.task != "regression":
-            print("predict called on a classification task")
-        return self.regressor(self.encode(X, noise=False))
+        z = self.encode(X, noise=False)
+        return self.predictor(z)
 
     def predict_proba(self, X):
-        if self.task == "regression":
+        if self.task.startswith("regression"):
             raise ValueError("predict_proba called on a regression task")
-        return self.classifier(self.encode(X, noise=False))
+
+        logits = self.predictor(self.encode(X, noise=False))
+        if "ordinal" in self.task:
+            return logits
+        elif self.output_dim == 1:
+            return torch.sigmoid(logits)
+        else:
+            return torch.softmax(logits, dim=1)
 
 class RegressionLoss(nn.Module):
     def __init__(self, alpha=3.3):
@@ -2763,7 +2748,7 @@ class FocalLoss(nn.Module):
 class OrdinalLoss(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.num_classes = num_classes - 1  # K-1 binary tasks
+        self.logits_dim = num_classes - 1  # K-1 binary tasks
 
     def forward(self, logits, targets):
         """
@@ -2771,7 +2756,7 @@ class OrdinalLoss(nn.Module):
         targets: integer labels 0..K-1
         """
         # Convert targets to ordinal binary matrix
-        ord_targets = (targets.unsqueeze(1) > torch.arange(self.num_classes, device=targets.device)).float()
+        ord_targets = (targets.unsqueeze(1) > torch.arange(self.logits_dim, device=targets.device)).float()
         return nn.functional.binary_cross_entropy_with_logits(logits, ord_targets)
 
 def train_and_score_nn_model(
@@ -2779,8 +2764,37 @@ def train_and_score_nn_model(
         model, DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None,
         num_epochs: int=100, lr: float=2e-5, patience_limit: int=5, batch_size: int=2048,
         save_path="/kaggle/working"):
+    """
+    """
+    def _get_validation_predictions(logits_val, task=task):
+        if task.startswith("regression"):
+            preds_val = logits_val.numpy()
+            if TargetTransformer != None:
+                y_p = TargetTransformer.inverse_transform(preds_val.reshape(-1, 1))
+            else:
+                y_p = preds_val.reshape(-1, 1)
+        elif "ordinal" in task:
+            preds_val = (logits_val > 0).sum(dim=1).numpy()
+            y_p = preds_val.reshape(-1, 1)
+        #predict probability of classification
+        elif task.startswith("probability"):
+            if logits_val.ndim == 1:
+                probs = torch.sigmoid(logits_val)
+                y_p = probs.numpy().reshape(-1, 1)
+            else:
+                probs = torch.softmax(logits_val, dim=1)
+                y_p = probs.numpy()  # shape (N, C)
+        #predict classification labels
+        else:
+            if logits_val.ndim == 1:
+                probs = torch.sigmoid(logits_val)
+                preds_val = (probs > 0.5).long().numpy() #binary 1/0
+            else:
+                probs = torch.softmax(logits_val, dim=1)
+                preds_val = probs.argmax(dim=1).numpy()  #multiclass labels
+            y_p = np.array(preds_val).reshape(-1, 1)
+        return y_p
 
-    #### TODO - need to fix classification and multiclass runs
     best_loss, best_model_state, patience = float('inf'), None, 0
     training_log = {}
 
@@ -2843,7 +2857,9 @@ def train_and_score_nn_model(
             X_batch = X_train_tensor[start:end]
             y_batch = y_train_tensor[start:end]
 
-            logits = model(X_batch).squeeze()
+            logits = model(X_batch)
+            if logits.shape[-1] == 1:
+                logits = logits.squeeze(-1)
 
             loss = loss_fn(logits, y_batch)
             loss.backward()
@@ -2859,25 +2875,12 @@ def train_and_score_nn_model(
         # each epoch - validation
         model.eval()
         with torch.no_grad():
-            logits_val = model.predict(X_val_tensor).squeeze().cpu()
+            logits_val = model.predict(X_val_tensor).cpu()
 
-            if task.startswith("regression"):
-                preds_val = logits_val.numpy()
-            elif "ordinal" in task:
-                # ordinal → class prediction
-                preds_val = (logits_val > 0).sum(dim=1).numpy()
-            else:
-                # convert logits → probabilities
-                if logits_val.ndim == 1:
-                    preds_val = torch.sigmoid(logits_val).numpy()
-                else:
-                    preds_val = torch.softmax(logits_val, dim=1).numpy()
+            if logits_val.shape[-1] == 1:
+                logits_val = logits_val.squeeze(-1)
 
-        if TargetTransformer != None:
-            y_p = TargetTransformer.inverse_transform(preds_val.reshape(-1, 1))
-        else:
-            y_p = np.array(preds_val).reshape(-1, 1)
-
+        y_p = _get_validation_predictions(logits_val)
         val_score = calculate_score(y_v, y_p, metric=task)
 
         # LOGGING
@@ -2913,25 +2916,13 @@ def train_and_score_nn_model(
     if save_path is not None:
         torch.save(model.state_dict(), f"{save_path}/regression_model.pt")
 
-    # final predictions
     model.eval()
     with torch.no_grad():
-        logits_val = model.predict(X_val_tensor).squeeze().cpu()
+        logits_val = model.predict(X_val_tensor).cpu()
+        if logits_val.shape[-1] == 1:
+            logits_val = logits_val.squeeze(-1)
 
-        if task.startswith("regression"):
-            preds_val = logits_val.numpy()
-        elif "ordinal" in task:
-            preds_val = (logits_val > 0).sum(dim=1).numpy()
-        else:
-            if logits_val.ndim == 1:
-                preds_val = torch.sigmoid(logits_val).numpy()
-            else:
-                preds_val = torch.softmax(logits_val, dim=1).numpy()
-
-    if TargetTransformer != None:
-        y_p = TargetTransformer.inverse_transform(preds_val.reshape(-1, 1))
-    else:
-        y_p = np.array(preds_val).reshape(-1, 1) 
+    y_p = _get_validation_predictions(logits_val)
     print(f"*** Final model score: {calculate_score(y_v, y_p, metric=task):.4f} ***")
 
     if verbose: 
