@@ -1743,6 +1743,9 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
     
     if task.startswith("probability"):
         y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
+        if y_p.shape != y_v.shape:
+            y_p = np.argsort(y_p, axis=1)[:, -1:][:, ::-1]
+            task="classification"
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
     
