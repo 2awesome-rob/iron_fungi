@@ -42,7 +42,7 @@ from multiprocessing import cpu_count
 #import statsmodels.formula.api as smf
 
 ########################################
-#Initialization and data loading functions
+# Initialization and data loading functions
 def set_globals(seed: int = 67, verbose: bool=True) -> (str, str):
     """
     sets: global variables and configurations for the project
@@ -829,6 +829,7 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
     else:
         print(f"Object features: {[f for f in features if f not in features_alt]}")
 
+########################################
 # Data cleaning 
 def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, reset_index: bool=False, verbose: bool=True) -> pd.DataFrame:
     """
@@ -1849,7 +1850,12 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     """
     model.fit(X_train, y_train)
     if task.startswith("regression") or task.startswith("classification"): y_predict = model.predict(X_val)
-    elif task.startswith("probability"): y_predict = model.predict_proba(X_val)[:, 1]
+    elif task.startswith("probability"): 
+            n_cats = y_train.nunique()
+            if n_cats == 2:
+                y_predict = model.predict_proba(X_val)[:, 1]
+            else:
+                y_predict = model.predict_proba(X_val)
     else: 
         print(f"Unknown task {task}")
         return model, None
@@ -1860,7 +1866,7 @@ def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
     else:
         y_t = np.array(y_train).reshape(-1, 1)
         y_v = np.array(y_val).reshape(-1, 1)
-        y_p = np.array(y_predict).reshape(-1, 1)
+        y_p = y_predict.reshape(y_v.shape[0], -1)
     score = calculate_score(y_v, y_p, metric = task)
     print(f"***  model score:  {score:.4f}  ***")
     if verbose == True: 
