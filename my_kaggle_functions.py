@@ -2,6 +2,17 @@
 # Rob's functions for use in KAGGLE TABULAR DATA PROJECTS
 # Please let me know if you use !!!
 # Feedback always appreciated
+#
+# XY = dataframe constructed with Tabular Data
+# target = dataframe column with the target feature
+# features = dataframe columns with predictive features
+# target_mask = dataframe column used to slice training/testing data
+# targets = dataframe columns with non-predictive features
+#           includeing labels and masks
+# TASK = 'regression', 'classification' or 'probability' + a sci-kit metric
+# DEVICE = 'cpu' or 'cuda'
+# CORES = # CPU cores to use
+#
 ################################################################################
 
 # Import required libraries and toolkits 
@@ -1707,7 +1718,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         score=0
         for i in range(top_k):
             score_i = skl.metrics.top_k_accuracy_score(actual, predicted, k = i+1)
-            score += (score_i - score_j) / i
+            score += (score_i - score_j) / (i+1)
             score_j = score_i
         return score
     elif '_top' in metric:
@@ -1742,10 +1753,12 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
     base_model.fit(X_t[numeric_features], y_t)
     
     if task.startswith("probability"):
-        y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
         if y_p.shape != y_v.shape:
             y_p = np.argsort(y_p, axis=1)[:, -1:][:, ::-1]
             task="classification"
+            y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
+        else:
+            y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
     else:
         y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
     
