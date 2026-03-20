@@ -240,14 +240,14 @@ def load_tabular_data(path: str, id_feature: list=None,
 
     if verbose:
         print("=" * 69)
-        print(f"Loaded {df.target_mask.eq(True).sum()} training samples of {
-            len(features)} predictive features and {len(targets)} target(s) in DataFrame.")
+        print(f"""Loaded {df.target_mask.eq(True).sum()} training samples of {
+            len(features)} predictive features and {len(targets)} target(s) in DataFrame.""")
         print(f"Loaded {df.target_mask.eq(False).sum()} testing samples in DataFrame.")
         print(f"DataFrame shape: {df.shape}. Ready to explore, engineer, and predict!")
         print("=" * 69)
     
     targets.append("target_label")
-    targets.append('target_mask')
+    targets.append("target_mask")
     return df, features, targets, target
 
 ########################################
