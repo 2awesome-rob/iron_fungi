@@ -1,5 +1,5 @@
 ################################################################################
-# Rob's functions for use in kaggle tabular data projects
+# Rob's functions for use in KAGGLE TABULAR DATA PROJECTS
 # Please let me know if you use !!!
 # Feedback always appreciated
 ################################################################################
@@ -18,7 +18,6 @@ import catboost as catb
 
 #import hdbscan
 import umap
-
 
 from scipy import stats
 import math
@@ -44,7 +43,7 @@ from multiprocessing import cpu_count
 
 ########################################
 #Initialization and data loading functions
-def set_globals(seed: int = 67, verbose: bool=True):
+def set_globals(seed: int = 67, verbose: bool=True) -> (str, str):
     """
     sets: global variables and configurations for the project
     -----------
@@ -55,9 +54,6 @@ def set_globals(seed: int = 67, verbose: bool=True):
     requires: numpy, pandas, seaborn, matplotlib, random, multiprocessing.cpu_count
     optional: torch
     """
-    # random seed settings for reproducibility
-    random.seed(seed)
-    np.random.seed(seed)
 
     # visualization settings
     pd.set_option('display.max_rows', 25)
@@ -71,8 +67,15 @@ def set_globals(seed: int = 67, verbose: bool=True):
     sns.set_theme(context = 'paper',
                   style = 'ticks',
                   palette = MY_PALETTE, 
-                  rc={"figure.figsize": (9, 3), "axes.spines.right": False, "axes.spines.top": False})
-    # device settings for torch
+                  rc={"figure.figsize": (9, 3),
+                      "axes.spines.right": False,
+                      "axes.spines.top": False})
+    
+    # random seed settings for reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    # device settings
     try: 
         torch.manual_seed(seed)
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -87,14 +90,14 @@ def set_globals(seed: int = 67, verbose: bool=True):
     return DEVICE, CORES 
 
 def get_colors(color_keys: list=None, get_cmap: bool=False, 
-                cmap_name: str='cividis', n_hues: int=5, n_sats: int=5):
+                cmap_name: str='cividis', n_hues: int=5, n_sats: int=5) -> list | dict:
     """
-    generates a color map or palette for visualizations
+    generates: color maps and/or palettes for consistent visualizations
     -----------
-    if get_cmap returns:
-        - a dictionary as a mpl.colormap
-    else returns: 
-        - a list of colors as a sns.palette 
+    returns:
+    - cmap: a dictionary as a mpl.colormap
+    or 
+    - palette: a list of colors as a sns.palette 
     -----------
     requires: seaborn, matplotlib
     """
@@ -134,7 +137,11 @@ def get_colors(color_keys: list=None, get_cmap: bool=False,
             return [cmap(i / n_colors) for i in range(n_colors)]       
 
 def summarize_data(df_: pd.DataFrame, features: list)-> None:
-    """prints df summary and descriptive stats for selected features"""
+    """
+    prints df summary and descriptive stats for selected features
+    -----------
+    requires: pandas
+    """
     try:
         df = df_[df_.target_mask.eq(True)][features]
     except:
@@ -157,26 +164,30 @@ def load_tabular_data(path: str, id_feature: list=None,
                       csv_sep: str=",",
                       verbose: bool=True):
     """
-    loads Kaggle type tabular data from csv files into single DataFrame
+    reads Kaggle type tabular data from csv files into a single DataFrame
     -----------
     returns:
-    - df: merged DataFrame for EDA & feature engineering
+    - df: merged DataFrame for easy EDA & feature engineering
     - features: list of training features
-    - targets: list of targets, including target_mask
-    - target: column name (first target)
-    -----------
-    requires: pandas
+    - targets: list of targets and non-training features,
+               including target_mask for partitioning test data
+    - target: target column name (first target if multiple target columns)
     -----------
     assumes:
     - path contains train.csv, test.csv, sample_submission.csv files
     - extra_data is optional "path + file name" of additional training data
         - extra_data contains same features and targets as train.csv
-            - may need to preprocess extra data
+        - extra data may need pre/post processing to conform to training data
+        - rename_col used to map extra_data col names to train col names
+    -----------
+    requires: pandas
     """
+    # read csv files to df
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
     df_test = pd.read_csv(f"{path}/test.csv", sep=csv_sep)
     df_submission = pd.read_csv(f"{path}/sample_submission.csv", sep=csv_sep)
     
+    # identify record id feature, target features, and training features
     targets = list(df_submission.columns)
     features = list(df_test.columns)
     if id_feature is None:
@@ -184,10 +195,14 @@ def load_tabular_data(path: str, id_feature: list=None,
     assert len(id_feature) == 1, f"Expected exactly one ID column: id_feature = {id_feature}"
     targets = [feature for feature in targets if feature not in id_feature]
     features = [feature for feature in features if feature not in id_feature]
-   
+
+    # combine dataframes to form single dataframe separable on target_mask
     df_test = df_test.merge(df_submission, how = 'left', on = id_feature)
-    df = pd.concat([df_train.assign(target_mask = True), df_test.assign(target_mask = False)], ignore_index=True)
+    df = pd.concat([df_train.assign(target_mask = True),
+                    df_test.assign(target_mask = False)], ignore_index=True)
     
+    # optionally load and add extra training data if available
+    # NOTE: this function may be buggy if data is not formated like training data
     if extra_data != None:
         df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
         if df_extra_training.shape[1] == 1 and csv_sep==',':
@@ -197,63 +212,50 @@ def load_tabular_data(path: str, id_feature: list=None,
         if rename_col is not None:
             df_extra_training.rename(columns=rename_col, inplace=True)
         missing = set(targets + features + id_feature) - set(df_extra_training.columns)
-        #assert not missing, f"Extra Data missing columns: {missing}"
-        #TODO: consider allowing extra columns to pass and then fixing on backend
-        #TODO: consider alternative strategies for indexing
+        #alert user to missing data - requires imputing
+        if missing is not None: print(f"Extra Data missing columns: {missing}")
+        #TODO: consider alternative strategies for extra data id to ensure uniqueness
         df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
+        #TODO: add a check that new id_features are unique before concat
         df = pd.concat([df, df_extra_training.assign(target_mask = True)])
     
     df.set_index(id_feature, inplace = True)  
-    ### clean feature names
+    # clean feature names for easy use in pandas
     clean_feature_names = {}
     for i, col in enumerate(features):
-        clean_feature_names[col] = col.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
+        clean_feature_names[col] = col.casefold().strip().replace(
+            " ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
         features[i] = clean_feature_names[col]
     df.rename(columns=clean_feature_names, inplace=True)
 
+    # if target is not categorical, adds a categorical target feature for plotting
+    # if target is not well formed, may require post-processing
+    cuts = 5
+    if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
+        df["target_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df["target_label"] = df["target_label"].fillna(-1).astype('int16').astype('category')
+    else: 
+        df["target_label"] = df[target]
+
     if verbose:
         print("=" * 69)
-        print(f"Loaded {df.target_mask.eq(True).sum()} training samples of {len(features)} predictive features and {len(targets)} target(s) in DataFrame.")
+        print(f"Loaded {df.target_mask.eq(True).sum()} training samples of {
+            len(features)} predictive features and {len(targets)} target(s) in DataFrame.")
         print(f"Loaded {df.target_mask.eq(False).sum()} testing samples in DataFrame.")
         print(f"DataFrame shape: {df.shape}. Ready to explore, engineer, and predict!")
         print("=" * 69)
+    
+    targets.append("target_label")
     targets.append('target_mask')
-
     return df, features, targets, targets[0]
 
-def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6, verbose: bool=True):
-    """
-    Adds category target "label" columns
-    Useful for visualizing numeric targets in categorical "bins"
-    -----------
-    if target is numeric with more unique values than cuts
-        - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
-        - adds "label" using pd.cut to create equal-width bins of the target
-    -----------
-    returns:
-    - df: updared with new label columns added
-    - targets: updated list of target features 
-    - label: categorical label used for plotting
-    """
-    if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
-        df["qcut_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df["label"] = pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16').astype('category')
-        if "qcut_label" not in targets: targets.append("qcut_label")
-        if "label" not in targets: targets.append("label")
-        if verbose:
-            print(f'Added label and qcut_label as categorical targets')
-        return df, targets, "label"
-    else:
-        print(f'NOTE: label is {target}')
-        return df, targets, target
-
+########################################
 # EDA functions
-def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution', hist: int=20) -> None:
+def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution') -> None:
     """
     plots simple target distribution plot
     if target is continuous (float or int with many unique values), plots histogram with KDE
-    if target is categorical (object, category, bool, or int with few unique values), plots countplot
+    if target is categorical (object, category, bool, or int with few unique values), plots sorted countplot
     -----------
     requires: seaborn, matplotlib, pandas
     """
@@ -261,9 +263,11 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
         df_plot = df[df.target_mask.eq(True)][target].to_frame()
     except:
         df_plot = df[target].to_frame()
+    
+    hist=10 #use histplot for high cardinality integers, countplot for low cardinality (e.g. 0, 1)
     if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
         sns.histplot(df_plot[target], 
-                     bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
+                     #bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
                      kde = True)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
@@ -274,19 +278,23 @@ def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distributi
     plt.yticks([])
     plt.show()
 
-def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str=None, 
-                      high_label = "", low_label = "") -> None:
+def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str="target_label", 
+                      high_label:str = "high", low_label:str = "low") -> None:
     """ 
-    supports feature EDA with numeric targets
+    supports feature EDA with numeric or categorical targets
     -----------
     for each numeric feature, plots:
-        - distribution histogram
-        - scatterplot with trendline showing relationship to target
-        - boxplot showing outliers and limits by label (if label provided)
+        - feature distribution -> histogram
+        - target relationship -> scatterplot or density plot
+        - boxplot showing outliers and limits by category or quantile
+    for each datetime feature, plots:
+        - feature distribution -> weekly and monthly countplots
+        - target relationship -> weekly/monthly mean or weekly count by target
+        - autocorrelation plot
     for each categorical feature, plots:
-        - distribution countplot
-        - psedo-scatterplot with trendline showing relationship to target
-        - donut showing variation in target by category (if label provided)
+        - feature distribution -> countplot
+        - target relationships -> psedo-scatterplot with trendline or density plot
+        - donut showing variation in target by category or quantile
     sample limits the number of points plotted in relationship plots
     high_label and low_label are used for boxplot and donut labels when label is provided
     y_min and y_max can be set to limit the y-axis of relationship plots
@@ -343,7 +351,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         df_scatter = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.regplot(data=df_scatter, x=feature, y=target, ax=ax,
                     scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
-        df_line = df.sample(n=min(int(sample/5), df.shape[0]), random_state=SEED)
+        df_line = df.sample(n=min(int(sample/10), df.shape[0]), random_state=SEED)
         sns.lineplot(data=df_line, x=feature, y=target, ax=ax, 
                      color='xkcd:rust', linewidth=1)
         ax.set_title(f'{target} vs {feature}')
@@ -364,7 +372,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ny = len(y_edges) - 1
         nx = len(x_edges) - 1
         sorted_idx = np.argsort(densities_flat)
-        N = min(len(x_edges)//2, 10)
+        N = min(len(x_edges)//2, 8)
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
         def _annotate_bins(indices, symbol, color):
@@ -449,7 +457,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         labels[-1] = y_order[-1]
         ax.set_yticks(y, labels, rotation=90)
 
-        ### TODO: validate datetime feature relationship to target (dt plot 1N)
+    ### TODO: validate datetime feature relationship to target (dt plot 1N)
     def _plot_dt_relationship(ax, feature, y_min=0, y_max=100):
         df_sampled = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
         sns.scatterplot(data=df_sampled, x=feature, y=target, ax=ax, zorder=0, alpha=0.5)
@@ -619,7 +627,7 @@ def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str=
     plt.show()
 
 def plot_feature_corr(df, features, target=None):
-    cmap = get_colors(get_cmap=True) #'cividis' default - coolwarm is also a good cmap
+    cmap = get_colors(get_cmap=True) 
     plot_features = [f for f in features if
                      (df[f].dtype == int or df[f].dtype == float)]
     if target is not None:
@@ -737,7 +745,7 @@ def plot_feature_transforms(df_: pd.DataFrame, feature: str)-> None:
     df['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
     df['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
     df['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
-    df['y_logTransform'] = np.log1p(X)
+    df['np_log1p'] = np.log1p(X)
     columns = list(df.columns)
     fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
     for i, col in enumerate(columns):
@@ -1655,39 +1663,39 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     simplifies calling scikit learn metrics by allowing flexible metric names
     -----------
     returns: metric score
-    for rmse use 'rmse' or 'regression'
-    for accuracy use 'accuracy' or 'classification'
-    for roc_auc use 'roc_auc' or 'probability_roc_auc'
+    for rmse use 'regression'
+    for accuracy use 'classification'
+    for roc_auc use 'probability'
     -----------
     requires: scikit learn
     """
-    if metric in ['rmse', 'regression', 'regression_rmse']:
-        return skl.metrics.root_mean_squared_error(actual, predicted)
-    elif metric in ['mae', 'regression_mae']:
-        return skl.metrics.mean_absolute_error(actual, predicted)
-    elif metric in ['r2', 'regression_r2']:
-        return skl.metrics.r2_score(actual, predicted)
-    elif metric in ['mape', 'regression_mape']:
-        return skl.metrics.mean_absolute_percentage_error(actual, predicted)
-    elif metric in ['rmse_log', 'rmsle', 'regression_log_rmse', 'regression_rmsle']:
+    if 'rmse_log' in metric or 'rmsle' in metric or 'log_rmse' in metric:
         predicted = np.clip(predicted, 0, None)
         return skl.metrics.root_mean_squared_log_error(actual, predicted)
-    elif metric in ['accuracy', 'classification', 'classification_accuracy']:
+    elif 'rmse' in metric or metric == 'regression':
+        return skl.metrics.root_mean_squared_error(actual, predicted)
+    elif 'accuracy' in metric or metric=='classification':
         return skl.metrics.accuracy_score(actual, predicted)
-    elif metric in ['f1', 'classification_f1']:
-        return skl.metrics.f1_score(actual, predicted)
-    elif metric in ['precision', 'classification_precision']:
-        return skl.metrics.precision_score(actual, predicted)
-    elif metric in ['roc_auc', 'probability', 'probability_roc_auc', 'classification_roc_auc', 'probability_auc']:
+    elif 'auc' in metric or metric == 'probability':
         return skl.metrics.roc_auc_score(actual, predicted)
-    elif metric in ['log_loss', 'probability_log_loss', 'classification_log_loss']:
+    elif 'r2' in metric:
+        return skl.metrics.r2_score(actual, predicted)
+    elif 'mae' in metric:
+        return skl.metrics.mean_absolute_error(actual, predicted)
+    elif 'mape' in metric:
+        return skl.metrics.mean_absolute_percentage_error(actual, predicted)
+    elif 'f1' in metric:
+        return skl.metrics.f1_score(actual, predicted)
+    elif 'precision' in metric:
+        return skl.metrics.precision_score(actual, predicted)
+    elif 'log_loss' in metric:
         return skl.metrics.log_loss(actual, predicted)
-    elif metric in ['brier', 'probability_brier', 'brier_score']:
+    elif 'brier' in metric:
         return skl.metrics.brier_score_loss(actual, predicted)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
-                         Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmse_log' \n
-                         Supported classification metrics: 'accuracy', 'f1', 'precision', 'roc_auc', 'log_loss', 'brier'""")
+            Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmsele' \n
+            Supported classification and probability metrics: 'accuracy', 'precision', 'roc_auc', 'f1', 'log_loss', 'brier'""")
 
 def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed_v=None)-> None:
     """
@@ -2595,12 +2603,15 @@ class ResidualBlock(nn.Module):
     def forward(self, X):
         return self.activation(X + self.block(X))
 
-class NeuralNetRegressor(nn.Module):
-    def __init__(self, input_dim, embed_dim=256, dropout_rate=0.1, noise_scale = 0.002):
-        self.embed_dim = embed_dim
+class NeuralNetModel(nn.Module):
+    def __init__(self, input_dim, task="regression", embed_dim=256,
+                 class_dim=2, dropout_rate=0.1, noise_scale=0.002):
 
         super().__init__()
+        self.embed_dim = embed_dim
+        self.task = task
         self.noise_scale = noise_scale
+
                                        
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 2*embed_dim),
@@ -2614,22 +2625,46 @@ class NeuralNetRegressor(nn.Module):
             nn.Linear(2*embed_dim, embed_dim),
             nn.GELU(),
             nn.Linear(embed_dim, embed_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(embed_dim, embed_dim),
             nn.BatchNorm1d(embed_dim),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Dropout(dropout_rate),
             nn.Linear(embed_dim, embed_dim),
         )
         self.regressor = nn.Sequential(
             nn.Linear(embed_dim, embed_dim // 2),
             nn.ReLU(),
-            nn.BatchNorm1d(embed_dim//2),
-            nn.Linear(embed_dim // 2, embed_dim // 2),
+            nn.BatchNorm1d(embed_dim // 2),
+            nn.Linear(embed_dim // 2, 16),
             nn.ReLU(),
-            nn.Dropout(dropout_rate/2),
-            nn.Linear(embed_dim // 2, 1),
+            nn.Dropout(dropout_rate / 2),
+            nn.Linear(16, 1),
         )
+
+        if class_dim == 1:
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),
+                nn.ReLU(),
+                nn.BatchNorm1d(embed_dim // 2),
+                nn.Linear(embed_dim // 2, 16),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate / 2),
+                nn.Linear(16, 1),
+                nn.Sigmoid()
+            )
+        else:
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, embed_dim // 2),
+                nn.ReLU(),
+                nn.BatchNorm1d(embed_dim // 2),
+                nn.Linear(embed_dim // 2, 16),
+                nn.ReLU(),
+                nn.Dropout(dropout_rate / 2),
+                nn.Linear(16, class_dim),
+                nn.Softmax(dim=1)
+            )
+
         self.embeddings = nn.Sequential(
             nn.Linear(embed_dim, embed_dim // 2),
             nn.ReLU(),
@@ -2638,7 +2673,7 @@ class NeuralNetRegressor(nn.Module):
         )
     
     def __repr__(self):
-        return f"NeuralNetRegressor(embed_dim={self.embed_dim})"
+        return f"NeuralNetModel(task={self.task}, embed_dim={self.embed_dim})"
     
     def toggle_dropout(self, enable=True):
         for m in self.modules():
@@ -2656,12 +2691,22 @@ class NeuralNetRegressor(nn.Module):
         return self.embeddings(self.encode(X, noise=False))
     
     def forward(self, X):
-        return self.regressor(self.encode(X, noise=True))
+        if self.task == "regression":
+            return self.regressor(self.encode(X, noise=True))
+        else:
+            return self.classifier(self.encode(X, noise=True))
 
     def predict(self, X):
+        if self.task != "regression":
+            print("predict called on a classification task")
         return self.regressor(self.encode(X, noise=False))
 
-class CustomLoss(nn.Module):
+    def predict_proba(self, X):
+        if self.task == "regression":
+            raise ValueError("predict_proba called on a regression task")
+        return self.classifier(self.encode(X, noise=False))
+
+class RegressionLoss(nn.Module):
     def __init__(self, alpha=3.3):
         super().__init__()
         self.alpha = alpha
@@ -2679,38 +2724,74 @@ class CustomLoss(nn.Module):
         weight = (torch.abs(y_true) > 1).float()
         return torch.mean(weight * (y_pred - y_true) ** 2)
 
-def train_and_score_nn_model(
-        X_train: pd.DataFrame, X_val:pd.DataFrame, y_train: pd.Series, y_val:pd.Series,
-        model, DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None, 
-        num_epochs: int=100, lr: float=2e-5, patience_limit: int=5, batch_size: int = 2048,
-        save_path = "/kaggle/working"): 
-    """
-    Trains a NeuralNetRegressor class instantiation
-    Returns:
-        model 
-        training_log_df for plotting 
-        best_model_state
-    """
-    best_loss, best_model_state, patience  = float('inf'), None, 0
-    training_log  = {}
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction="mean"):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
 
-    def _get_batch(X, y, step, batch_size=batch_size, labels=None):
-        start = step * batch_size
-        end = min(start + batch_size, len(X))
-        if labels == None:
-            return X[start:end], y[start:end]
+    def forward(self, logits, targets):
+        """
+        logits: raw model outputs BEFORE sigmoid/softmax
+        targets: class indices (long) for multi-class, or float {0,1} for binary
+        """
+        if logits.size(-1) == 1:
+            # Binary classification
+            bce = nn.functional.binary_cross_entropy_with_logits(
+                logits, targets.float(), reduction="none"
+            )
+            prob = torch.sigmoid(logits)
+            pt = torch.where(targets == 1, prob, 1 - prob)
         else:
-            return X[start:end], y[start:end], labels[start:end]
-        
-    model.to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
-    reg_loss_fn = CustomLoss()
+            # Multi-class classification
+            ce = nn.functional.cross_entropy(
+                logits, targets.long(), reduction="none"
+            )
+            prob = torch.softmax(logits, dim=1)
+            pt = prob.gather(1, targets.unsqueeze(1)).squeeze()
+            bce = ce
 
-    X_train_tensor = torch.tensor(X_train.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
-    y_train_tensor = torch.tensor(y_train.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
-    X_val_tensor = torch.tensor(X_val.values.astype(np.float32), dtype=torch.float32).to(DEVICE)
-    
+        focal = self.alpha * (1 - pt) ** self.gamma * bce
+
+        return focal.mean() if self.reduction == "mean" else focal.sum()
+
+class OrdinalLoss(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.num_classes = num_classes - 1  # K-1 binary tasks
+
+    def forward(self, logits, targets):
+        """
+        logits: shape (N, K-1)
+        targets: integer labels 0..K-1
+        """
+        # Convert targets to ordinal binary matrix
+        ord_targets = (targets.unsqueeze(1) > torch.arange(self.num_classes, device=targets.device)).float()
+        return nn.functional.binary_cross_entropy_with_logits(logits, ord_targets)
+
+def train_and_score_nn_model(
+        X_train: pd.DataFrame, X_val: pd.DataFrame, y_train: pd.Series, y_val: pd.Series,
+        model, DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None,
+        num_epochs: int=100, lr: float=2e-5, patience_limit: int=5, batch_size: int=2048,
+        save_path="/kaggle/working"):
+
+    #### TODO - need to fix classification and multiclass runs
+    best_loss, best_model_state, patience = float('inf'), None, 0
+    training_log = {}
+
+    # DATA prep 
+    X_train_tensor = torch.tensor(X_train.values.astype(np.float32)).to(DEVICE)
+    X_val_tensor   = torch.tensor(X_val.values.astype(np.float32)).to(DEVICE)
+
+    if task.startswith("regression"):
+        y_train_tensor = torch.tensor(y_train.values.astype(np.float32)).to(DEVICE)
+        #y_val_tensor   = torch.tensor(y_val.values.astype(np.float32)).to(DEVICE)
+    else:
+        # classification → long labels
+        y_train_tensor = torch.tensor(y_train.values.astype(np.int64)).to(DEVICE)
+        #y_val_tensor   = torch.tensor(y_val.values.astype(np.int64)).to(DEVICE)
+
     if TargetTransformer != None:
         y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
         y_v = TargetTransformer.inverse_transform(y_val.values.reshape(-1, 1))
@@ -2718,53 +2799,95 @@ def train_and_score_nn_model(
         y_t = np.array(y_train).reshape(-1, 1)
         y_v = np.array(y_val).reshape(-1, 1)
 
+    # Identify loss function and data shape 
+    if task.startswith("regression"):
+        num_classes = 1
+        loss_fn = RegressionLoss()
+    elif "ordinal" in task:
+        num_classes = len(np.unique(y_train))
+        loss_fn = OrdinalLoss(num_classes)
+    elif task.startswith("classification") or task.startswith("probability"):
+        num_classes = len(np.unique(y_train))
+        num_classes = 1 if num_classes == 2 else num_classes 
+        loss_fn = FocalLoss()   
+    else:
+        raise ValueError(f"Unknown task: {task}")
+
+    # Learning parameters 
+    model.to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+
+    # TRAINING LOOP
     for epoch in range(num_epochs):
         tick = time()
+        model.train()
         loss_totals = 0
 
         perm = torch.randperm(X_train_tensor.size(0))
-        X_train_tensor, y_train_tensor = X_train_tensor[perm], y_train_tensor[perm]
-        model.train()
+        X_train_tensor = X_train_tensor[perm]
+        y_train_tensor = y_train_tensor[perm]
+
         num_batches = math.ceil(len(X_train_tensor) / batch_size)
 
         for batch in range(num_batches):
             optimizer.zero_grad()
-            X_batch, y_batch = _get_batch(X_train_tensor, y_train_tensor, batch)
-            
-            predictions = model(X_batch).squeeze()
-            loss = reg_loss_fn(predictions, y_batch)
+
+            start = batch * batch_size
+            end = min(start + batch_size, len(X_train_tensor))
+
+            X_batch = X_train_tensor[start:end]
+            y_batch = y_train_tensor[start:end]
+
+            logits = model(X_batch).squeeze()
+
+            loss = loss_fn(logits, y_batch)
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-            
+
             loss_totals += loss.item()
-        
+
         scheduler.step()
         total_loss = loss_totals / num_batches
-                
+
+        # each epoch - validation
+        model.eval()
         with torch.no_grad():
-            predictions = model.predict(X_val_tensor).squeeze().cpu().numpy()
+            logits_val = model.predict(X_val_tensor).squeeze().cpu()
+
+            if task.startswith("regression"):
+                preds_val = logits_val.numpy()
+            elif "ordinal" in task:
+                # ordinal → class prediction
+                preds_val = (logits_val > 0).sum(dim=1).numpy()
+            else:
+                # convert logits → probabilities
+                if logits_val.ndim == 1:
+                    preds_val = torch.sigmoid(logits_val).numpy()
+                else:
+                    preds_val = torch.softmax(logits_val, dim=1).numpy()
 
         if TargetTransformer != None:
-            y_p = TargetTransformer.inverse_transform(predictions.reshape(-1, 1))
+            y_p = TargetTransformer.inverse_transform(preds_val.reshape(-1, 1))
         else:
-            y_p = np.array(predictions).reshape(-1, 1)
-            
-        val_score = calculate_score(y_v, y_p, metric=task)
-        val_sigma = predictions.std()
-        
-        if verbose:
-            if epoch == 0 or (epoch + 1) % 5 == 0:
-                print("=" * 69)
-                print(f"Epoch {epoch+1} | Time: {time()-tick:.2f}s")
-                print(f" Val_RMSE: {val_score:.3f}, Pred μ: {predictions.mean():.3f}, σ: {val_sigma:.3f}")
-            if epoch == 0 or (epoch + 1) % 25 == 0:
-                embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
-                plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
+            y_p = np.array(preds_val).reshape(-1, 1)
 
-        training_log[epoch + 1] = [total_loss, val_score, val_sigma,] 
-                
+        val_score = calculate_score(y_v, y_p, metric=task)
+
+        # LOGGING
+        training_log[epoch + 1] = [total_loss, val_score]
+
+        if verbose and (epoch == 0 or (epoch + 1) % 5 == 0):
+            print("=" * 69)
+            print(f"Epoch {epoch+1} | Time: {time()-tick:.2f}s")
+            print(f" Val Score: {val_score:.4f}, Pred μ: {y_p.mean():.3f}, σ: {y_p.std():.3f}")
+        if verbose and (epoch == 0 or (epoch + 1) % 25 == 0):
+            embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
+            plot_training_results(X_train, X_val, y_t, y_v, y_p, task=task, embed_v=embeddings)
+
+        # EARLY STOPPING
         if total_loss < best_loss:
             best_loss = total_loss
             best_model_state = model.state_dict()
@@ -2776,19 +2899,36 @@ def train_and_score_nn_model(
             print(f"Early stopping triggered. Best Epoch {epoch + 1 - patience}.")
             break
 
+    # FINALIZE
+    training_log_df = pd.DataFrame.from_dict(
+        training_log, orient='index',
+        columns=['training_loss', 'val_score']
+    )
+    
     model.load_state_dict(best_model_state)
     if save_path is not None:
         torch.save(model.state_dict(), f"{save_path}/regression_model.pt")
-        
-    training_log_df = pd.DataFrame.from_dict(
-        training_log, orient='index', columns=['training_loss', 'val_score', 'val_sigma'])
 
-    predictions = model.predict(X_val_tensor).squeeze().detach().cpu().numpy()
+    # final predictions
+    model.eval()
+    with torch.no_grad():
+        logits_val = model.predict(X_val_tensor).squeeze().cpu()
+
+        if task.startswith("regression"):
+            preds_val = logits_val.numpy()
+        elif "ordinal" in task:
+            preds_val = (logits_val > 0).sum(dim=1).numpy()
+        else:
+            if logits_val.ndim == 1:
+                preds_val = torch.sigmoid(logits_val).numpy()
+            else:
+                preds_val = torch.softmax(logits_val, dim=1).numpy()
+
     if TargetTransformer != None:
-        y_p = TargetTransformer.inverse_transform(predictions.reshape(-1, 1))
+        y_p = TargetTransformer.inverse_transform(preds_val.reshape(-1, 1))
     else:
-        y_p = np.array(predictions).reshape(-1, 1)
-    print(f"***  model score:  {calculate_score(y_v, y_p, metric=task):.4f}  ***")
+        y_p = np.array(preds_val).reshape(-1, 1) 
+    print(f"*** Final model score: {calculate_score(y_v, y_p, metric=task):.4f} ***")
 
     if verbose: 
         embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
@@ -2921,6 +3061,34 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
     return submission_df
 
 
+
+def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6, verbose: bool=True):
+    """
+    ****DEPRICATED****
+    Adds category target "label" columns
+    Useful for visualizing numeric targets in categorical "bins"
+    -----------
+    if target is numeric with more unique values than cuts
+        - adds "qcut_label" using pd.qcut to create quantile-based bins of the target
+        - adds "label" using pd.cut to create equal-width bins of the target
+    -----------
+    returns:
+    - df: updared with new label columns added
+    - targets: updated list of target features 
+    - label: categorical label used for plotting
+    """
+    if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
+        df["qcut_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df["label"] = pd.cut(df[df.target_mask.eq(True)][target], cuts, labels=False)
+        df[["qcut_label", "label"]] = df[["qcut_label", "label"]].fillna(-1).astype('int16').astype('category')
+        if "qcut_label" not in targets: targets.append("qcut_label")
+        if "label" not in targets: targets.append("label")
+        if verbose:
+            print(f'Added label and qcut_label as categorical targets')
+        return df, targets, "label"
+    else:
+        print(f'NOTE: label is {target}')
+        return df, targets, target
 """
 TODO: GLM feature analysis
 from statsmodels.graphics.api import abline_plot
