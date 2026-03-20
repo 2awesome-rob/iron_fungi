@@ -1313,13 +1313,13 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
         )
 
         preds = get_nn_predictions(
-            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
         y_hint[X.index[val_idx], :] = preds
         models.append(m)
 
     if len(X_test) > 0:
         preds_test = get_nn_predictions(
-            X_test, models, batch_size=batch_size, DEVICE=DEVICE, get_embed=True)
+            X_test, models, batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
         y_hint[X_test.index, :] = preds_test
 
     cols = [f"nn_{index_id}_hint_{i}" for i in range(hints)] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
@@ -1700,10 +1700,22 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
         return skl.metrics.log_loss(actual, predicted)
     elif 'brier' in metric:
         return skl.metrics.brier_score_loss(actual, predicted)
+    elif 'weighted_top' in metric:
+        top_k = 3 #TODO update to pull digit in metric following substring "_top_", default to 3 if not provided
+        score_j = 0
+        score=0
+        for i in range(top_k):
+            score_i = skl.metrics.top_k_accuracy_score(actual, predicted, k = i+1)
+            score += (score_i - score_j) / i
+            score_j = score_i
+        return score
+    elif '_top' in metric:
+        top_k = 3  #TODO update to pull digit in metric following substring "_top_", default to 3 if not provided
+        return skl.metrics.top_k_accuracy_score(actual, predicted, k = top_k)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
             Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmsele' \n
-            Supported classification and probability metrics: 'accuracy', 'precision', 'roc_auc', 'f1', 'log_loss', 'brier'""")
+            Supported classification and probability metrics: 'accuracy', 'precision', 'roc_auc', 'f1', 'log_loss', 'brier', 'top_k'""")
 
 def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed_v=None)-> None:
     """
@@ -2268,7 +2280,8 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
     all_features = _get_all_features(features)
     X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
-
+    n_cats = y.nunique() if task.startswith("probability") else 1
+    
     trained_models = {}
     model_names = list(models.keys())
     n_models = len(model_names)
@@ -2277,10 +2290,14 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         more_oof = more_oof.reshape(y.shape[0], -1)
         extra_cols = more_oof.shape[1]
 
-    oof_matrix = np.zeros((y.shape[0], n_models + extra_cols))
-
-    if extra_cols > 0:
-        oof_matrix[:, n_models:] = more_oof
+    if n_cats > 2: 
+        oof_matrix = np.zeros((y.shape[0], n_cats, n_models + extra_cols))
+        if extra_cols > 0:
+            oof_matrix[:, :, n_models:] = more_oof
+    else:
+        oof_matrix = np.zeros((y.shape[0], n_models + extra_cols))
+        if extra_cols > 0:
+            oof_matrix[:, n_models:] = more_oof
     
     for i, (k, model) in enumerate(models.items()):
         print(f"Training Model: {k}")
@@ -2295,7 +2312,10 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             )
 
         cv_models = []
-        oof_pred = np.zeros(y.shape[0])
+        if n_cats > 2: 
+            oof_pred = np.zeros(y.shape[0], n_cats)
+        else:
+            oof_pred = np.zeros(y.shape[0], 1)
 
         for (train_idx, val_idx) in tqdm(cv.split(X, y), desc="training models", unit="folds"):
             X_t, X_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx]
@@ -2307,26 +2327,30 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                 model.fit(X_t, y_t)
 
             if task.startswith("probability"):
-                y_v_pred = model.predict_proba(X_v)[:, 1]
+                y_v_pred = model.predict_proba(X_v)
             else:
                 y_v_pred = model.predict(X_v)
 
-            oof_pred[val_idx] = y_v_pred
+            if n_cats > 2: 
+                oof_pred[val_idx, :] = y_v_pred
+            elif n_cats ==2: 
+                oof_pred[val_idx] = y_v_pred[:, 1]
+            else:
+                oof_pred[val_idx] = y_v_pred
+
             cv_models.append(model)
 
         trained_models[k] = cv_models
-        oof_matrix[:, i] = oof_pred
 
-        if TargetTransformer is None:
-            oof_eval = np.array(oof_pred).reshape(-1, 1)
-            y_all = np.array(y).reshape(-1, 1)
+        if n_cats > 2:
+            oof_matrix[:, :, i] = oof_pred
         else:
-            oof_eval = TargetTransformer.inverse_transform(
-                np.array(oof_pred).reshape(-1, 1)
-            )
+            oof_matrix[:, i] = oof_pred
+
+        if TargetTransformer is not None:
+            oof_pred = TargetTransformer.inverse_transform(oof_pred)
             y_all = TargetTransformer.inverse_transform(
-                np.array(y).reshape(-1, 1)
-            )
+                np.array(y).reshape(-1,1))
             if verbose:
                 y_t = TargetTransformer.inverse_transform(
                     np.array(y_t).reshape(-1, 1)
@@ -2337,13 +2361,19 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                 y_v_pred = TargetTransformer.inverse_transform(
                     np.array(y_v_pred).reshape(-1, 1)
                 )
-        score = calculate_score(y_all, oof_eval, metric=task)
+        else:
+            y_all = np.array(y).reshape(-1, 1)
+        score = calculate_score(y_all, oof_pred, metric=task)
         print(f"***  model {k} final cv score:  {score:.4f}  ***")
 
         if verbose:
             # note: plotting last fold's X_t, X_v, y_t, y_v, and corresponding preds
-            plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
-                task=task)
+            if n_cats == 2:
+                plot_training_results(X_t, X_v, y_t, y_v, y_v_pred[:, 1],
+                    task=task)
+            else:
+                plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
+                    task=task)
 
     # ---- Stacking meta-model on OOF predictions ----
     if meta_model == None:
@@ -2351,6 +2381,9 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             meta_model = skl.linear_model.Ridge(alpha=1.0)
         else:
             meta_model = skl.linear_model.LogisticRegression()
+    if n_cats > 2:
+        oof_matrix = oof_matrix.reshape(y.shape[0], -1)
+
     # note: when TargetTransformer is used, meta model is NOT trained on inverse transformed target values. 
     # Meta model output will still REQUIRE inverse transform
     tic=time()
@@ -2438,7 +2471,7 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     return submission_df
 
 def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, models: dict,
-                                folds: int = 7, meta_model=None, raw_score: bool=False,  top_k: int=3,
+                                folds: int = 7, meta_model=None, task: str="classification_weighted_top_3",  top_k: int=3,
                                 verbose: bool = True):
     
     """
@@ -2451,17 +2484,6 @@ def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, mo
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
     """
-    def _calculate_score(y_val, y_predict, raw_score=raw_score, top_k=top_k):
-        if raw_score:
-            score = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = top_k)
-        else:
-            score_j = 0
-            score=0
-            for i in range(1,top_k+1):
-                score_i = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = i)
-                score += (score_i - score_j) / i
-                score_j = score_i
-        return score
     def _get_all_features(features=features):
         list_of_lists = [f for f in features.values()]
         flat = []
@@ -2509,7 +2531,7 @@ def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, mo
         oof_matrix[:, :, i] = oof_pred
         y_all = np.array(y).reshape(-1, 1)
 
-        score = _calculate_score(y_all, oof_pred)
+        score = calculate_score(y_all, oof_pred, metric=task)
         print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k}  cv score:  {score:.4f}  ***")
 
     # ---- Stacking meta-model on OOF predictions ----
@@ -2982,38 +3004,77 @@ def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, D
 
     return cv_models, pd.concat(training_logs), oof_preds
 
-def get_nn_predictions(X, models, batch_size, DEVICE, get_embed=False):
+def get_nn_predictions(X, models, batch_size, DEVICE,
+                       task: str="regression", n_classes:int=1,
+                       get_embed:bool=False):
+
     def _get_batch(tensor, step):
         start = step * batch_size
         end = min(start + batch_size, len(tensor))
         return tensor[start:end]
 
+    def _decode_logits(logits_val):
+        # logits_val is a TORCH tensor on GPU or CPU
+        if task.startswith("regression"):
+            return logits_val.cpu().numpy().reshape(-1, 1)
+
+        elif "ordinal" in task:
+            preds = (logits_val > 0).sum(dim=1)
+            return preds.cpu().numpy().reshape(-1, 1)
+
+        elif task.startswith("probability"):
+            if logits_val.ndim == 1:
+                probs = torch.sigmoid(logits_val)
+                return probs.cpu().numpy().reshape(-1, 1)
+            else:
+                probs = torch.softmax(logits_val, dim=1)
+                return probs.cpu().numpy()
+
+        else:  # classification labels
+            if logits_val.ndim == 1:
+                probs = torch.sigmoid(logits_val)
+                preds = (probs > 0.5).long()
+                return preds.cpu().numpy().reshape(-1, 1)
+            else:
+                probs = torch.softmax(logits_val, dim=1)
+                preds = probs.argmax(dim=1)
+                return preds.cpu().numpy().reshape(-1, 1)
+
     features = torch.tensor(X.values.astype(np.float32)).to(DEVICE)
     batches = math.ceil(len(features) / batch_size)
-    predictions = np.zeros(len(X), dtype=np.float32)
+    predictions = np.zeros((len(X), n_classes), dtype=np.float32)
+
     if get_embed:
-        embeddings = np.zeros((len(X), 17), dtype=np.float32)
+        embeddings = np.zeros((len(X), n_classes + 16), dtype=np.float32)
 
     for model in models:
-        model_predictions = []
+        model_preds = np.zeros((0, n_classes), dtype=np.float32)
 
         with torch.no_grad():
             for b in range(batches):
                 batch = _get_batch(features, b)
-                pred = model(batch).cpu().numpy().flatten()
-                model_predictions.extend(pred)
-            if get_embed:
-                emb = model.get_embedding(features).detach().cpu().numpy()
-                embeddings[:, 1:] += emb
 
-        predictions += np.array(model_predictions)
+                logits = model(batch)
+                if logits.shape[-1] == 1:
+                    logits = logits.squeeze(-1)
+
+                y_p = _decode_logits(logits)
+
+                model_preds = np.concatenate((model_preds, y_p), axis=0)
+
+            if get_embed:
+                emb = model.get_embedding(features).cpu().numpy()
+                embeddings[:, n_classes:] += emb
+
+        predictions += model_preds
+
+    predictions /= len(models)
 
     if get_embed:
-        embeddings[:, 0] = predictions
+        embeddings[:, :n_classes] = predictions
         embeddings /= len(models)
         return embeddings
 
-    predictions /= len(models)
     return predictions
 
 def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:str, 
@@ -3040,12 +3101,12 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
         plt.yticks([])
         plt.show()
 
-    y_test = get_nn_predictions(X, models, batch_size, DEVICE)
+    y_test = get_nn_predictions(X, models, batch_size, DEVICE, task=task)
 
     if TargetTransformer is None:
-        y_pred = np.array(y_test).reshape(-1, 1)
+        y_pred = y_test
     else:
-        y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+        y_pred = TargetTransformer.inverse_transform(y_test.reshape(-1, 1))
     
     submission_df = pd.read_csv(f"{path}/{file}")
     submission_df[target] = y_pred
