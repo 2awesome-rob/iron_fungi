@@ -728,7 +728,7 @@ def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True
         loadings[(loadings > -0.1) & (loadings < 0.1)] = ""
     print(loadings)
 
-def plot_feature_transforms(df_: pd.DataFrame, feature: str)-> None:
+def plot_feature_transforms(df_: pd.DataFrame, feature: str, Transformer=None)-> None:
     """
     Plots histogram distribution of feature variable with different transformations 
     Informs feature transformation feature engineering decisions 
@@ -746,7 +746,10 @@ def plot_feature_transforms(df_: pd.DataFrame, feature: str)-> None:
     df['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
     df['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
     df['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
-    df['np_log1p'] = np.log1p(X)
+    if Transformer is None:
+        df['np_log1p'] = np.log1p(X)
+    else:
+        df['Transformer'] = Transformer.fit_transform(X)
     columns = list(df.columns)
     fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
     for i, col in enumerate(columns):
@@ -1272,7 +1275,7 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
 
 def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
                         model, DEVICE, task='regression', index_id:str="1",
-                        batch_size=1024, folds=7, verbose:bool=True) -> pd.DataFrame:
+                        batch_size=1024, folds=7, num_epochs=20, verbose:bool=True) -> pd.DataFrame:
     """
     """
     def _plot_embeddings(df, target):
@@ -1302,7 +1305,7 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
         m, _, _ = train_and_score_nn_model(
-            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=20
+            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=num_epochs
         )
 
         preds = get_nn_predictions(
