@@ -195,6 +195,7 @@ def load_tabular_data(path: str, id_feature: list=None,
     assert len(id_feature) == 1, f"Expected exactly one ID column: id_feature = {id_feature}"
     targets = [feature for feature in targets if feature not in id_feature]
     features = [feature for feature in features if feature not in id_feature]
+    target = targets[0]
 
     # combine dataframes to form single dataframe separable on target_mask
     df_test = df_test.merge(df_submission, how = 'left', on = id_feature)
@@ -230,7 +231,6 @@ def load_tabular_data(path: str, id_feature: list=None,
 
     # if target is not categorical, adds a categorical target feature for plotting
     # if target is not well formed, may require post-processing
-    target = targets[0]
     cuts = 5
     if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
         df["target_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
