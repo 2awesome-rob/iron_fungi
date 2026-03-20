@@ -230,6 +230,7 @@ def load_tabular_data(path: str, id_feature: list=None,
 
     # if target is not categorical, adds a categorical target feature for plotting
     # if target is not well formed, may require post-processing
+    target = targets[0]
     cuts = 5
     if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
         df["target_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
@@ -247,7 +248,7 @@ def load_tabular_data(path: str, id_feature: list=None,
     
     targets.append("target_label")
     targets.append('target_mask')
-    return df, features, targets, targets[0]
+    return df, features, targets, target
 
 ########################################
 # EDA functions
