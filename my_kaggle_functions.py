@@ -2368,7 +2368,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         if n_cats > 2:
             oof_matrix[:, :, i] = oof_pred
         else:
-            oof_matrix[:, i] = oof_pred
+            oof_matrix[:, i] = oof_pred.ravel()
 
         if TargetTransformer is not None:
             oof_pred = TargetTransformer.inverse_transform(oof_pred)
