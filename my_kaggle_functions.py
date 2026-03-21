@@ -1141,6 +1141,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     y_trans = TargetTransformer.fit_transform(y_fit).ravel()
     df.loc[mask, enc_tgt] = y_trans
     if df[target].dtype == "O" or df[target].dtype == "category":
+        df[enc_tgt] = df[enc_tgt].astype('category')
         df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int, prefix=t)
         new_cols = df_dummies.columns.tolist()
         df = df.join(df_dummies)
@@ -1279,7 +1280,7 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
     if task.startswith('regression'):
         df[f"hint_{index_id}"] = y_hint
     else:
-        cols = [f"hint_{index_id}_{cat}" for cat in cats]
+        cols = [f"hint_{index_id}_{str(cat)}" for cat in cats]
         df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
         df = pd.concat([df, df_hint], axis=1)
 
@@ -2335,9 +2336,9 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
         cv_models = []
         if n_cats > 2: 
-            oof_pred = np.zeros(y.shape[0], n_cats)
+            oof_pred = np.zeros((y.shape[0], n_cats))
         else:
-            oof_pred = np.zeros(y.shape[0], 1)
+            oof_pred = np.zeros((y.shape[0], 1))
 
         for (train_idx, val_idx) in tqdm(cv.split(X, y), desc="training models", unit="folds"):
             X_t, X_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx]
@@ -2358,7 +2359,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             elif n_cats ==2: 
                 oof_pred[val_idx] = y_v_pred[:, 1]
             else:
-                oof_pred[val_idx] = y_v_pred
+                oof_pred[val_idx] = y_v_pred.reshape(-1,1)
 
             cv_models.append(model)
 
@@ -2971,7 +2972,7 @@ def train_and_score_nn_model(
             logits_val = logits_val.squeeze(-1)
 
     y_p = _get_validation_predictions(logits_val)
-    print(f"*** Final model score: {calculate_score(y_v, y_p, metric=task):.4f} ***")
+    print(f"*** final epoch score: {calculate_score(y_v, y_p, metric=task):.4f} ***")
 
     if verbose: 
         embeddings = model.get_embedding(X_val_tensor).detach().cpu().numpy()
@@ -3022,7 +3023,7 @@ def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, D
         cv_models.append(model)
 
         score = calculate_score(y, oof_preds[y.index], metric=task)
-        print(f"***  final model cv score:  {score:.4f}  ***")
+        print(f"***  final fold cv score:  {score:.4f}  ***")
 
     return cv_models, pd.concat(training_logs), oof_preds
 
