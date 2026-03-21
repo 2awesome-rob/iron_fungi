@@ -45,6 +45,8 @@ import seaborn as sns
 import plotly as go
 
 from multiprocessing import cpu_count
+from typing import List, Dict, Optional, Tuple, Union
+from typing import NamedTuple
 
 #import plotly.express as px
 #from statsmodels import graphics
@@ -54,324 +56,312 @@ from multiprocessing import cpu_count
 
 ########################################
 # Initialization and data loading functions
-def set_globals(seed: int = 67, verbose: bool=True) -> (str, str):
-    """
-    sets: global variables and configurations for the project
-    -----------
-    returns:
-    - DEVICE: torch device (cpu or cuda)
-    - CORES: number of CPU cores to use for multiprocessing
-    -----------
-    requires: numpy, pandas, seaborn, matplotlib, random, multiprocessing.cpu_count
-    optional: torch
-    """
 
-    # visualization settings
+
+class Globals(NamedTuple):
+    device: str
+    cores: int
+
+def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
+    """
+    Set global variables and configurations for the project.
+    Returns a Globals namedtuple: (device, cores)
+    """
+    # Visualization settings
     pd.set_option('display.max_rows', 25)
     pd.set_option('display.max_columns', 10)
     pd.set_option('display.max_colwidth', 15)
     pd.set_option('display.width', 130)
     pd.set_option('display.precision', 4)
 
-    # custom seaborn/matplotlib style
+    # Custom seaborn/matplotlib style
     MY_PALETTE = get_colors()
-    sns.set_theme(context = 'paper',
-                  style = 'ticks',
-                  palette = MY_PALETTE, 
+    sns.set_theme(context='paper',
+                  style='ticks',
+                  palette=MY_PALETTE,
                   rc={"figure.figsize": (9, 3),
                       "axes.spines.right": False,
                       "axes.spines.top": False})
-    
-    # random seed settings for reproducibility
+
+    # Random seed settings for reproducibility
     random.seed(seed)
     np.random.seed(seed)
-    
-    # device settings
-    try: 
+
+    # Device settings
+    try:
         torch.manual_seed(seed)
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    except: 
-        DEVICE = 'cpu'
-    CORES = min(4, cpu_count())  # Limit cores to avoid memory issues
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        device = 'cpu'
+    cores = min(4, cpu_count())
 
     if verbose:
-        print(f"Using device: {DEVICE}")
-        print(f"Using {CORES} CPU cores when multiprocessing")
-    
-    return DEVICE, CORES 
+        print(f"Using device: {device}")
+        print(f"Using {cores} CPU cores when multiprocessing")
 
-def get_colors(color_keys: list=None, get_cmap: bool=False, 
-                cmap_name: str='cividis', n_hues: int=5, n_sats: int=5) -> list | dict:
+    return Globals(device, cores)
+
+def get_colors(
+    color_keys: List[str] = None,
+    get_cmap: bool = False,
+    cmap_name: str = 'cividis',
+    n_hues: int = 5,
+    n_sats: int = 5
+) -> Union[List, Dict]:
     """
-    generates: color maps and/or palettes for consistent visualizations
-    -----------
-    returns:
-    - cmap: a dictionary as a mpl.colormap
-    or 
-    - palette: a list of colors as a sns.palette 
-    -----------
-    requires: seaborn, matplotlib
+    Generate color palettes or color mappings for consistent visualizations.
+    If color_keys is None, returns a palette (list of colors).
+    If color_keys is provided, returns a dict mapping keys to colors.
+    If get_cmap is True, uses a matplotlib colormap for extended palettes.
     """
-    MY_PALETTE = sns.xkcd_palette(['ocean blue', 'gold', 'dull green',
-                                   'dusty rose', 'dark lavender',
-                                   'carolina blue', 'sunflower', 'lichen',
-                                   'blush pink', 'dusty lavender'])
+    MY_PALETTE = sns.xkcd_palette([
+        'ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender',
+        'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender'])
+
     if color_keys is None:
-        if get_cmap: return mpl.colormaps[cmap_name]
-        else: return MY_PALETTE
+        return MY_PALETTE
 
     n_colors = len(color_keys)
-    if get_cmap:
-        if n_colors <= len(MY_PALETTE):
-            return dict(zip(color_keys, MY_PALETTE[:n_colors]))
-        elif n_colors <= n_hues * n_sats:
-            new_palette = []
-            for j in range(n_hues):
-                for i in range(n_sats):
-                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
-            return dict(zip(color_keys, new_palette[:n_colors]))
-        else:
-            cmap = mpl.colormaps[cmap_name].resampled(n_colors)
-            return dict(zip(color_keys, [cmap(i / n_colors) for i in range(n_colors)]))
+    # Build palette for mapping
+    if n_colors <= len(MY_PALETTE):
+        palette = MY_PALETTE[:n_colors]
+    elif n_colors <= n_hues * n_sats:
+        palette = []
+        for j in range(n_hues):
+            for i in range(n_sats):
+                palette.append(sns.desaturate(MY_PALETTE[j % len(MY_PALETTE)], 1 - .2 * i))
+        palette = palette[:n_colors]
     else:
-        #if n_colors == 1: return sns.xkcd_palette(['steel']) 
-        if n_colors <= len(MY_PALETTE):
-            return MY_PALETTE[:n_colors]
-        elif n_colors <= n_hues * n_sats:
-            new_palette = []
-            for j in range(n_hues):
-                for i in range(n_sats):
-                    new_palette.append(sns.desaturate(MY_PALETTE[j], 1-.2*i))
-            return new_palette[:n_colors]
-        else:
-            cmap = mpl.colormaps[cmap_name].resampled(n_colors)
-            return [cmap(i / n_colors) for i in range(n_colors)]       
+        cmap = mpl.colormaps[cmap_name].resampled(n_colors)
+        palette = [cmap(i / n_colors) for i in range(n_colors)]
 
-def summarize_data(df_: pd.DataFrame, features: list)-> None:
+    if get_cmap or color_keys is not None:
+        return dict(zip(color_keys, palette))
+    else:
+        return palette
+
+def summarize_data(df_: pd.DataFrame, features: List[str]) -> None:
     """
-    prints df summary and descriptive stats for selected features
-    -----------
-    requires: pandas
+    Print DataFrame summary and descriptive stats for selected features.
+    Handles missing target_mask gracefully and prints both numeric and non-numeric summaries.
     """
-    try:
-        df = df_[df_.target_mask.eq(True)][features]
-    except:
+    import pandas as pd
+    print("=" * 69)
+    # Try to select only training data if possible
+    df = None
+    if 'target_mask' in df_.columns:
+        try:
+            df = df_[df_.target_mask.eq(True)][features]
+        except Exception:
+            df = df_[features]
+    else:
         df = df_[features]
+    # Print info
+    info_buf = []
+    df_[features].info(buf=info_buf)
+    print(''.join(info_buf) if info_buf else df_[features].info())
     print("=" * 69)
-    print(df_[features].info())
+    print(df.head(5).T)
     print("=" * 69)
-    print(df.head(5).T) 
-    print("=" * 69)
+    # Numeric summary
     try:
         print(df.describe(include=['float', 'int']).T)
-    except: pass
+    except Exception:
+        print("No numeric columns to describe.")
+    # Non-numeric summary
     try:
         non_numeric_cols = df.select_dtypes(include=['object', 'category', 'bool']).columns
-        print(df[non_numeric_cols].describe().T)
-    except: pass
-    
-def load_tabular_data(path: str, id_feature: list=None,
-                      extra_data: str=None, rename_col: dict=None,
-                      csv_sep: str=",",
-                      verbose: bool=True):
+        if len(non_numeric_cols) > 0:
+            print(df[non_numeric_cols].describe().T)
+        else:
+            print("No non-numeric columns to describe.")
+    except Exception:
+        print("Error describing non-numeric columns.")
+
+class TabularData(NamedTuple):
+    df: 'pd.DataFrame'
+    features: List[str]
+    targets: List[str]
+    target: str
+
+def _clean_feature_names(features: List[str]) -> Tuple[List[str], Dict[str, str]]:
+    clean_map = {col: col.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_") for col in features}
+    return [clean_map[col] for col in features], clean_map
+
+def load_tabular_data(
+    path: str,
+    id_feature: Optional[List[str]] = None,
+    extra_data: Optional[str] = None,
+    rename_col: Optional[Dict[str, str]] = None,
+    csv_sep: str = ",",
+    verbose: bool = True
+) -> TabularData:
     """
-    reads Kaggle type tabular data from csv files into a single DataFrame
-    -----------
-    returns:
-    - df: merged DataFrame for easy EDA & feature engineering
-    - features: list of training features
-    - targets: list of targets and non-training features,
-               including target_mask for partitioning test data
-    - target: target column name (first target if multiple target columns)
-    -----------
-    assumes:
-    - path contains train.csv, test.csv, sample_submission.csv files
-    - extra_data is optional "path + file name" of additional training data
-        - extra_data contains same features and targets as train.csv
-        - extra data may need pre/post processing to conform to training data
-        - rename_col used to map extra_data col names to train col names
-    -----------
-    requires: pandas
+    Reads Kaggle type tabular data from csv files into a single DataFrame.
+    Returns a namedtuple: (df, features, targets, target)
     """
-    # read csv files to df
+    # Read CSVs
     df_train = pd.read_csv(f"{path}/train.csv", sep=csv_sep)
     df_test = pd.read_csv(f"{path}/test.csv", sep=csv_sep)
     df_submission = pd.read_csv(f"{path}/sample_submission.csv", sep=csv_sep)
-    
-    # identify record id feature, target features, and training features
+
     targets = list(df_submission.columns)
     features = list(df_test.columns)
     if id_feature is None:
         id_feature = [feature for feature in features if feature in targets]
-    assert len(id_feature) == 1, f"Expected exactly one ID column: id_feature = {id_feature}"
-    targets = [feature for feature in targets if feature not in id_feature]
-    features = [feature for feature in features if feature not in id_feature]
+    if len(id_feature) != 1:
+        raise ValueError(f"Expected exactly one ID column: id_feature = {id_feature}")
+    targets = [f for f in targets if f not in id_feature]
+    features = [f for f in features if f not in id_feature]
     target = targets[0]
 
-    # combine dataframes to form single dataframe separable on target_mask
-    df_test = df_test.merge(df_submission, how = 'left', on = id_feature)
-    df = pd.concat([df_train.assign(target_mask = True),
-                    df_test.assign(target_mask = False)], ignore_index=True)
-    
-    # optionally load and add extra training data if available
-    # NOTE: this function may be buggy if data is not formated like training data
-    if extra_data != None:
-        df_extra_training = pd.read_csv(f"{extra_data}", sep=csv_sep)
-        if df_extra_training.shape[1] == 1 and csv_sep==',':
-            df_extra_training = pd.read_csv(f"{extra_data}", sep=";")
-        if df_extra_training.shape[1] == 1 and csv_sep==';':
-            df_extra_training = pd.read_csv(f"{extra_data}", sep=",")
-        if rename_col is not None:
-            df_extra_training.rename(columns=rename_col, inplace=True)
-        missing = set(targets + features + id_feature) - set(df_extra_training.columns)
-        #alert user to missing data - requires imputing
-        if missing is not None: print(f"Extra Data missing columns: {missing}")
-        #TODO: consider alternative strategies for extra data id to ensure uniqueness
-        df_extra_training[id_feature[0]] = range(len(df), len(df) + len(df_extra_training))
-        #TODO: add a check that new id_features are unique before concat
-        df = pd.concat([df, df_extra_training.assign(target_mask = True)])
-    
-    df.set_index(id_feature, inplace = True)  
-    # clean feature names for easy use in pandas
-    clean_feature_names = {}
-    for i, col in enumerate(features):
-        clean_feature_names[col] = col.casefold().strip().replace(
-            " ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
-        features[i] = clean_feature_names[col]
-    df.rename(columns=clean_feature_names, inplace=True)
+    # Merge test with submission
+    df_test = df_test.merge(df_submission, how='left', on=id_feature)
+    df = pd.concat([df_train.assign(target_mask=True), df_test.assign(target_mask=False)], ignore_index=True)
 
-    # if target is not categorical, adds a categorical target feature for plotting
-    # if target is not well formed, may require post-processing
+    # Optionally add extra training data
+    if extra_data:
+        try:
+            df_extra = pd.read_csv(extra_data, sep=csv_sep)
+            if df_extra.shape[1] == 1:
+                alt_sep = ";" if csv_sep == "," else ","
+                df_extra = pd.read_csv(extra_data, sep=alt_sep)
+            if rename_col:
+                df_extra.rename(columns=rename_col, inplace=True)
+            missing = set(targets + features + id_feature) - set(df_extra.columns)
+            if missing:
+                print(f"Extra Data missing columns: {missing}")
+            # Ensure unique IDs
+            df_extra[id_feature[0]] = range(len(df), len(df) + len(df_extra))
+            if df_extra[id_feature[0]].duplicated().any():
+                raise ValueError("Duplicate IDs found in extra_data after assignment.")
+            df = pd.concat([df, df_extra.assign(target_mask=True)], ignore_index=True)
+        except Exception as e:
+            print(f"Error loading extra_data: {e}")
+
+    # Clean feature names
+    features, clean_map = _clean_feature_names(features)
+    df.rename(columns=clean_map, inplace=True)
+
+    # Add target_label
     cuts = 5
-    if (df[target].dtype == int or df[target].dtype == float) and df[target].nunique() > cuts:
+    if (df[target].dtype in [int, float]) and df[target].nunique() > cuts:
         df["target_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
         df["target_label"] = df["target_label"].fillna(-1).astype('int16').astype('category')
-    else: 
+    else:
         df["target_label"] = df[target]
 
     if verbose:
         print("=" * 69)
-        print(f"""Loaded {df.target_mask.eq(True).sum()} training samples of {
-            len(features)} predictive features and {len(targets)} target(s) in DataFrame.""")
-        print(f"Loaded {df.target_mask.eq(False).sum()} testing samples in DataFrame.")
+        print(f"Loaded {df.target_mask.eq(True).sum()} training samples of {len(features)} features and {len(targets)} target(s).")
+        print(f"Loaded {df.target_mask.eq(False).sum()} testing samples.")
         print(f"DataFrame shape: {df.shape}. Ready to explore, engineer, and predict!")
         print("=" * 69)
-    
-    targets.append("target_label")
-    targets.append("target_mask")
-    return df, features, targets, target
+
+    targets += ["target_label", "target_mask"]
+    df.set_index(id_feature, inplace=True)
+    return TabularData(df, features, targets, target)
 
 ########################################
 # EDA functions
-def plot_target_eda(df: pd.DataFrame, target: str, title: str='target distribution') -> None:
+def plot_target_eda(df: pd.DataFrame, target: str,
+                     title: str = 'Target Distribution') -> None:
     """
-    plots simple target distribution plot
-    if target is continuous (float or int with many unique values), plots histogram with KDE
-    if target is categorical (object, category, bool, or int with few unique values), plots sorted countplot
-    -----------
-    requires: seaborn, matplotlib, pandas
+    Plot the distribution of the target variable.
+    - For continuous targets: histogram with KDE.
+    - For categorical targets: sorted countplot.
     """
     try:
         df_plot = df[df.target_mask.eq(True)][target].to_frame()
-    except:
-        df_plot = df[target].to_frame()
-    
-    hist=10 #use histplot for high cardinality integers, countplot for low cardinality (e.g. 0, 1)
-    if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
-        sns.histplot(df_plot[target], 
-                     #bins = min(df_plot[target].nunique(), 42),  # limit number of bins for large unique value counts
-                     kde = True)
+    except Exception:
+        df_plot = df[[target]].copy()
+
+    hist_threshold = 10  # Use histplot for high cardinality integers
+    target_dtype = df[target].dtype
+    n_unique = df[target].nunique()
+
+    if pd.api.types.is_float_dtype(target_dtype) or (
+        pd.api.types.is_integer_dtype(target_dtype) and n_unique > hist_threshold
+    ):
+        sns.histplot(df_plot[target], kde=True)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
-        y_order = sorted(df_plot[target].unique().tolist(), reverse=False)
+        y_order = sorted(df_plot[target].unique().tolist())
         df_plot[target] = pd.Categorical(df_plot[target], categories=y_order, ordered=True)
-        sns.countplot(data=df_plot, x=target)
+        sns.countplot(data=df_plot, x=target, order=y_order)
     plt.title(title)
     plt.yticks([])
+    plt.tight_layout()
     plt.show()
 
-def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str="target_label", 
-                      high_label:str = "high", low_label:str = "low") -> None:
-    """ 
-    supports feature EDA with numeric or categorical targets
-    -----------
-    for each numeric feature, plots:
-        - feature distribution -> histogram
-        - target relationship -> scatterplot or density plot
-        - boxplot showing outliers and limits by category or quantile
-    for each datetime feature, plots:
-        - feature distribution -> weekly and monthly countplots
-        - target relationship -> weekly/monthly mean or weekly count by target
-        - autocorrelation plot
-    for each categorical feature, plots:
-        - feature distribution -> countplot
-        - target relationships -> psedo-scatterplot with trendline or density plot
-        - donut showing variation in target by category or quantile
-    sample limits the number of points plotted in relationship plots
-    high_label and low_label are used for boxplot and donut labels when label is provided
-    y_min and y_max can be set to limit the y-axis of relationship plots
-    --
-    for performance, limits the number of features plotted to 20
-    -----------
-    requires: seaborn, matplotlib, pandas, numpy
+def plot_features_eda(
+    df_: 'pd.DataFrame',
+    features: List[str],
+    target: str,
+    label: str = "target_label",
+    high_label: str = "high",
+    low_label: str = "low"
+) -> None:
+    """
+    Visual EDA for a list of features against a target.
+    For each feature, plots:
+        - Distribution (histogram/countplot/lineplot)
+        - Target relationship (scatter, density, or strip/point)
+        - Outlier/boxplot or donut/categorical breakdown
     """
     MY_PALETTE = get_colors()
     SEED = 67
-    sample=1000
-    y_min=None
-    y_max=None
+    sample = 1000
+    y_min = None
+    y_max = None
 
-    df = df_[df_.target_mask.eq(True)]
-    ### Histogram for distribution of numeric feature (num plot 0)
+    df = df_[df_.target_mask.eq(True)].copy()
+
     def _plot_num_distribution(ax, feature):
-        #bins = min(50, df[feature].nunique())
-        sns.histplot(df[feature], ax=ax, discrete=True) #bins = bins
+        sns.histplot(df[feature], ax=ax, discrete=True)
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
         ax.set_xlabel("")
-    
-    ### Countplot for distribution of categorical feature (cat plot 0)
+
     def _plot_cat_distribution(ax, feature, order, color_map):
         sns.countplot(data=df, x=feature, order=order, ax=ax,
-                      palette=[color_map[val] for val in order])
-        ax.set_title(f'{feature} distribution')
-        ax.set_yticks([])
-        ax.set_ylabel("Count")
-        if len(order) > 8: 
+                    palette=[color_map[val] for val in order])
+        if len(order) > 8:
             x = ax.get_xticks()
             ax.set_xticks(x, order, rotation=90)
         if len(order) > 20:
             x = ax.get_xticks()
             labels = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
             ax.set_xticks(x, labels, rotation=90)
-        ax.set_xlabel("")
-    
-    ### TODO: validate distribution plot for datetime feature (dt plot 0)
-    def _plot_dt_distribution(ax, feature, target):
-        df_w = df.groupby([pd.Grouper(key=f"{feature}", freq="W")])[target].count().rename(f"count_w").reset_index()
-        sns.lineplot(data=df_w, x=feature, y=f"count_w", ax=ax)
-        df_m = df.groupby([pd.Grouper(key=f"{feature}", freq="MS")])[target].count().rename(f"count_m").reset_index()
-        sns.lineplot(data=df_m, x=feature, y=f"count_m", ax=ax)
         ax.set_title(f'{feature} distribution')
         ax.set_yticks([])
         ax.set_ylabel("Count")
         ax.set_xlabel("")
 
-    ### scatterplot with trendline for numerical feature relationship to numeric target (num plot 1N)
-    def _plot_num_relationship(ax, feature,  y_min=0, y_max=100):
-        df_scatter = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
-        sns.regplot(data=df_scatter, x=feature, y=target, ax=ax,
-                    scatter_kws={'alpha': 0.5, 's': 12}, line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
-        df_line = df.sample(n=min(int(sample/10), df.shape[0]), random_state=SEED)
-        sns.lineplot(data=df_line, x=feature, y=target, ax=ax, 
-                     color='xkcd:rust', linewidth=1)
-        ax.set_title(f'{target} vs {feature}')
-        ax.set_ylabel("")
-        ax.set_ylim(y_min, y_max)
+    def _plot_dt_distribution(ax, feature, target):
+        df_w = df.groupby([pd.Grouper(key=feature, freq="W")])[target].count().rename("count_w").reset_index()
+        sns.lineplot(data=df_w, x=feature, y="count_w", ax=ax)
+        df_m = df.groupby([pd.Grouper(key=feature, freq="MS")])[target].count().rename("count_m").reset_index()
+        sns.lineplot(data=df_m, x=feature, y="count_m", ax=ax)
+        ax.set_title(f'{feature} distribution')
+        ax.set_yticks([])
+        ax.set_ylabel("Count")
         ax.set_xlabel("")
 
-    ### density plot for numeric feature relationship to categorical target (num plot 1C)
+    def _plot_num_relationship(ax, feature, y_min=0, y_max=100):
+        df_scatter = df.sample(n=min(sample, df.shape[0]), random_state=SEED)
+        sns.regplot(data=df_scatter, x=feature, y=target, ax=ax,
+            scatter_kws={'alpha': 0.5, 's': 12},
+            line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
+        df_line = df.sample(n=min(int(sample/10), df.shape[0]), random_state=SEED)
+        sns.lineplot(data=df_line, x=feature, y=target, ax=ax,
+            color='xkcd:rust', linewidth=1)
+        ax.set_ylim(y_min, y_max)
+        ax.set_title(f'{target} vs {feature}')
+        ax.set_ylabel("")
+        ax.set_xlabel("")
+
     def _plot_num_tgt_cat_relationship(ax, feature, y_order):
         sns.histplot(data=df, stat='percent', x=feature, y=target,
                      discrete=[True, True], legend=False, ax=ax,
@@ -387,7 +377,8 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         N = min(len(x_edges)//2, 8)
         top_idx = sorted_idx[-N:]
         bottom_idx = sorted_idx[:N]
-        def _annotate_bins(indices, symbol, color):
+
+        def _annotate_bins(indices, symbol, color='xkcd:rust'):
             for idx in indices:
                 iy, ix = np.unravel_index(idx, (ny, nx))
                 x_center = (x_edges[ix] + x_edges[ix+1]) / 2
@@ -395,20 +386,19 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                 ax.text(float(x_center), float(y_center), symbol,
                         ha="center", va="center",
                         color=color, fontsize=10, zorder=2)
-
-        _annotate_bins(top_idx, "●", 'xkcd:rust') #⊤
-        _annotate_bins(bottom_idx, "⊥", 'xkcd:rust') #⊥
+        
+        _annotate_bins(top_idx, "●")
+        _annotate_bins(bottom_idx, "⊥", 'xkcd:rust')
+        y = ax.get_yticks()
+        labels = ["" for _ in y]
+        if len(y) > 0:
+            labels[0] = y_order[0]
+            labels[-1] = y_order[-1]
+        ax.set_yticks(y, labels, rotation=90)
         ax.set_title(f'{target} vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
-        y = ax.get_yticks()
-        labels = [""] * len(y)
-        labels[0] = y_order[0]
-        labels[-1] = y_order[-1]
-        ax.set_yticks(y, labels, rotation=90)
 
-
-    ### psedo-scatterplot with trendline for categorical feature relationship to numeric target (cat plot 1N)
     def _plot_cat_relationship(ax, feature, order, color_map, y_min=0, y_max=100):
         grouped = df.groupby(feature)
         sampled_dfs = []
@@ -445,7 +435,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_ylim(y_min, y_max)
         ax.set_xlabel("")
 
-    ### density plot for categorical feature relationship to categorical target (cat plot 1C)
     def _plot_cat_tgt_cat_relationship(ax, feature, order, y_order):
         sns.histplot(data=df, stat='percent', x=feature, y=target, zorder=0, 
                                   legend=False, discrete=[True,True], pthresh=0.02, pmax=.98, ax=ax)
@@ -493,9 +482,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         ax.set_title(f'Count {target} values vs {feature}')
         ax.set_ylabel("")
         ax.set_xlabel("")
-        
 
-    ### boxplot shows outliers and limits by label  (num plot 2)
     def _plot_num_boxplot(ax, feature, label = None, top_label="", bottom_label=""):
         if label == None:
             sns.boxplot(x = df[feature], ax=ax)
@@ -512,7 +499,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(df[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color = 'black')
         ax.set_yticks([])
 
-    ### donut shows variation in target by category  (cat plot 2)
     def _plot_cat_donut(ax, feature, label, order, color_map, inner_label="", outer_label=""):
         if label == None: return
         cats = sorted(df[label].dropna().unique().tolist(), reverse=True)
@@ -534,23 +520,22 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color = 'xkcd:steel grey')
             ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color = 'xkcd:steel grey')
 
-    ### autocorrelation spikes indicate seasonal relationships with target  (dt plot 2)
     def _plot_dt_autoplot(ax, feature, target):
         ds = df[[feature, target]].set_index(feature)
         pd.plotting.autocorrelation_plot(ds[target], ax=ax)
 #        ax.set_yticks([])
 
-    ### limit number of features plotted/size of plot
+    #limit number of features plotted/size of plot
     f = min(20, len(features))
     features = features[:f]
     if f > 20: print("Plotting first 20 features")
     
-    ### gridspec to build plot layout
+    #gridspec to build plot layout
     fig = plt.figure(figsize=(10, f * 3))
     gs = mpl.gridspec.GridSpec(f, 3, figure=fig, hspace=0.4)
     row_anchors = []
 
-    ### determine nature of target
+    # determine nature of target
     tgt_cat = (df[target].dtype == "O" or df[target].dtype == bool or 
                df[target].dtype == "category" or df[target].nunique() < 4)
     if tgt_cat:
@@ -564,7 +549,7 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
     for i, feature in enumerate(features):
         ax0 = fig.add_subplot(gs[i, 0])
         row_anchors.append(ax0)
-        ### for each feature determine applicable plot selection
+        # for each feature determine applicable plot selection
         if df[feature].dtype == 'O':
             try:
                 df[feature] = pd.to_datetime(df[feature])
@@ -576,12 +561,9 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
                   (df[feature].dtype=='int' and df[feature].nunique() < 4))
         is_dt = True if pd.api.types.is_datetime64_any_dtype(df[feature]) else False
         if is_dt:
-            #distribution plot (0)
             _plot_dt_distribution(ax0, feature, target)
-            #target relationship plot(1)
             if tgt_cat: _plot_dt_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, y_order)
             else: _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
-            #target distribution by feature plot (2)
             if label != None:
                 _plot_dt_autoplot(fig.add_subplot(gs[i, 2]), feature, target)
         elif is_cat:
@@ -589,26 +571,21 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
             if len(order) <= 128:
                 df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
                 color_map = get_colors(color_keys=order, get_cmap=True, n_hues=6, n_sats=5)
-                #distribution plot (0)
                 _plot_cat_distribution(ax0, feature, order, color_map)
-                #target relationship plot(1)
                 if tgt_cat: _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, y_order)
                 else: _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map, y_min=y_min, y_max=y_max)
-                #target distribution by feature plot (2)
                 if label != None:
                     _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature, label, order, color_map,
                                     inner_label=low_label, outer_label=high_label)
             #TODO: alternate plot when high ordinal categorical?
         else:
-            #distribution plot (0)
             _plot_num_distribution(ax0, feature)
-            #target relationship plot(1)
             if tgt_cat: _plot_num_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, y_order)
             else: _plot_num_relationship(fig.add_subplot(gs[i, 1]), feature, y_min=y_min, y_max=y_max)
             if label != None:
                 _plot_num_boxplot(fig.add_subplot(gs[i, 2]), feature, label, 
                                                   top_label=high_label, bottom_label=low_label)
-    ### add tear lines between features
+    # add tear lines between features
     for i in range(f - 1):
         bottom_y = row_anchors[i].get_position().y0
         top_y = row_anchors[i + 1].get_position().y1
@@ -616,7 +593,6 @@ def plot_features_eda(df_: pd.DataFrame, features: list, target: str, label: str
         line = mpl.lines.Line2D([0.05, 0.95], [y_pos, y_pos], transform=fig.transFigure,
                       color='black', linewidth=0.5, linestyle='--')
         fig.add_artist(line)
-
     plt.show()
 
 def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str="", **kwargs) -> None:
@@ -1110,12 +1086,14 @@ def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5
     if outlier_count == 0:
         df.drop(f'outlier_{name}', inplace=True, axis=1)
     if drop is True:
-        outlier_mask = df_train[df_train[f'outlier_{name}'] == -1]
+        #TODO fix to only drop outliers from training data - can't drop test data!!!
+        outlier_mask = df[df[f'outlier_{name}'] == -1]
         df.drop(outlier_mask.index, inplace=True)
         df.drop(f'outlier_{name}', inplace=True, axis=1)
         print(f"Removed {outlier_mask.shape[0]} outliers from original DataFrame.")
     return df
 
+########################################
 # Feature Engineering
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
@@ -1284,63 +1262,6 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
         df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
         df = pd.concat([df, df_hint], axis=1)
 
-    return df
-
-def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
-                        model, DEVICE, task='regression', index_id:str="1",
-                        batch_size=1024, folds=7, num_epochs=20, verbose:bool=True) -> pd.DataFrame:
-    """
-    """
-    def _plot_embeddings(df, target):
-        palette = get_colors(df[target].unique(), get_cmap=True)
-        df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
-        fig, ax = plt.subplots(figsize=(5, 3))
-        sns.scatterplot(data=df_plot, x=df_plot[f"nn_{index_id}_embed_0"], y=df_plot[f"nn_{index_id}_embed_1"], 
-                            hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
-        plt.xticks(())
-        plt.yticks(())
-        plt.xlabel("")
-        plt.ylabel("")
-        plt.show()
-        return
-
-    mask = df.get("target_mask", pd.Series(True, index=df.index))
-    X = df.loc[mask, features]
-    y = df.loc[mask, target]
-    X_test = df.loc[~mask, features]
-
-    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=67)
-    if "top_k" in task:
-        print("Not ready for multiclass probabilities....yet!")
-        #hints = 1 if "top_k" not in task else y.nunique()
-    hints = 1 #TODO update get_nn_predictions to support getting multiclass probabilities returned
-    y_hint = np.zeros((len(df), hints + 16), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
-
-    models = []
-    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
-        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-
-        m, _, _ = train_and_score_nn_model(
-            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=num_epochs
-        )
-
-        preds = get_nn_predictions(
-            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
-        y_hint[X.index[val_idx], :] = preds
-        models.append(m)
-
-    if len(X_test) > 0:
-        preds_test = get_nn_predictions(
-            X_test, models, batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
-        y_hint[X_test.index, :] = preds_test
-
-    cols = [f"nn_{index_id}_hint_{i}" for i in range(hints)] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
-    df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
-    
-    df = pd.concat([df, df_hint], axis=1)
-    
-    if verbose: _plot_embeddings(df, target)
     return df
 
 def get_embeddings(df: pd.DataFrame, features:list, mapper, col_names:str, sample_size: float=None, target:str=None, index: int=1, verbose=True) -> pd.DataFrame:
@@ -1632,6 +1553,7 @@ def plot_lag(df:pd.DataFrame, feature:str, target:str, lag: int=5, sample: int=N
     pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
     plt.show()
 
+########################################
 # Training
 def split_training_data(df: pd.DataFrame, features: list, targets, 
                         drop_na: bool=False, validation_size: None| float | pd.Index = None):
@@ -1848,6 +1770,7 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
     plt.tight_layout()
     plt.show()
 
+########################################
 ### Train and evaluate
 def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
                           y_train: pd.Series, y_val:pd.Series,
@@ -2368,7 +2291,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
         if n_cats > 2:
             oof_matrix[:, :, i] = oof_pred
         else:
-            oof_matrix[:, i] = oof_pred
+            oof_matrix[:, i] = oof_pred.ravel()
 
         if TargetTransformer is not None:
             oof_pred = TargetTransformer.inverse_transform(oof_pred)
@@ -2640,7 +2563,7 @@ def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dic
 
     return submission_df
 
-# Neural Network
+########################################
 # Neural Net -> build a nn feature extractor network
 class ResidualBlock(nn.Module):
     def __init__(self, dim):
@@ -3143,6 +3066,65 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
 
     return submission_df
 
+def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
+                        model, DEVICE, task='regression', index_id:str="1",
+                        batch_size=1024, folds=7, num_epochs=20, verbose:bool=True) -> pd.DataFrame:
+    """
+    """
+    def _plot_embeddings(df, target):
+        palette = get_colors(df[target].unique(), get_cmap=True)
+        df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
+        fig, ax = plt.subplots(figsize=(5, 3))
+        sns.scatterplot(data=df_plot, x=df_plot[f"nn_{index_id}_embed_0"], y=df_plot[f"nn_{index_id}_embed_1"], 
+                            hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
+        plt.xticks(())
+        plt.yticks(())
+        plt.xlabel("")
+        plt.ylabel("")
+        plt.show()
+        return
+
+    mask = df.get("target_mask", pd.Series(True, index=df.index))
+    X = df.loc[mask, features]
+    y = df.loc[mask, target]
+    X_test = df.loc[~mask, features]
+
+    cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=67)
+    if "top_k" in task:
+        print("Not ready for multiclass probabilities....yet!")
+        #hints = 1 if "top_k" not in task else y.nunique()
+    hints = 1 #TODO update get_nn_predictions to support getting multiclass probabilities returned
+    y_hint = np.zeros((len(df), hints + 16), dtype=np.float32) # nn_hint + 16 embeddings = 17 columns
+
+    models = []
+    for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+
+        m, _, _ = train_and_score_nn_model(
+            X_train, X_val, y_train, y_val, model, DEVICE, task=task, verbose=False, num_epochs=num_epochs
+        )
+
+        preds = get_nn_predictions(
+            X_val, [m], batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
+        y_hint[X.index[val_idx], :] = preds
+        models.append(m)
+
+    if len(X_test) > 0:
+        preds_test = get_nn_predictions(
+            X_test, models, batch_size=batch_size, DEVICE=DEVICE, task=task, get_embed=True)
+        y_hint[X_test.index, :] = preds_test
+
+    cols = [f"nn_{index_id}_hint_{i}" for i in range(hints)] + [f"nn_{index_id}_embed_{i}" for i in range(16)]
+    df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
+    
+    df = pd.concat([df, df_hint], axis=1)
+    
+    if verbose: _plot_embeddings(df, target)
+    return df
+
+########################################
+# Decrement when safe
 
 
 def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6, verbose: bool=True):
