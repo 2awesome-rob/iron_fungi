@@ -232,7 +232,7 @@ def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
     else:
         df_plot = df[features]
     print("=" * 69)
-    print(df_[features].info())
+    print(df_plot[features].info())
     print("")
 
     print("=" * 69)
@@ -269,8 +269,8 @@ def plot_target_eda(df: pd.DataFrame, target: str,
 
     n_unique = df[target].nunique()
 
-    if df[target].dtype == 'float' or (
-        df[target].dtype == 'int' and n_unique > hist_threshold):
+    if df_plot[target].dtype == 'float' or (
+        df_plot[target].dtype == 'int' and n_unique > hist_threshold):
         sns.histplot(df_plot[target], kde=True)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
