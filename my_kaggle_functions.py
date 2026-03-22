@@ -316,7 +316,8 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                df_plot[target].dtype == "category" or df_plot[target].nunique() < 4)
     if tgt_cat:
         df_plot[target] = df_plot[target].astype(str).astype('category')
-        df_plot[target] = pd.Categorical(df_plot[target], categories=label_order, ordered=True)
+        tgt_order = sorted(df_plot[target].dropna().unique().tolist(), reverse=True)
+        df_plot[target] = pd.Categorical(df_plot[target], categories=tgt_order, ordered=True)
     else:
         if not y_min: y_min = df[target].min()
         if not y_max: y_max = df[target].max()
@@ -441,12 +442,12 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_ylim(y_min, y_max)
 
     def _plot_cat_tgt_cat_relationship(ax, feature, order):
-        sns.histplot(data=df_plot, stat='percent', x=feature, y=target, zorder=0, 
-                                  legend=False, discrete=[True,True], pthresh=0.02, pmax=.98, ax=ax)
+        sns.histplot(data=df_plot, stat='percent', x=feature, y=target_label, zorder=0, 
+                                  legend=False, discrete=[True,True], ax=ax)
 
         if len(order) < 20:
-            mode_points = df_plot.groupby(feature)[target].agg(lambda x: x.value_counts().idxmax()).reset_index()
-            sns.pointplot(data=mode_points, x=feature, y=target, zorder=1,
+            mode_points = df_plot.groupby(feature)[target_label].agg(lambda x: x.value_counts().idxmax()).reset_index()
+            sns.pointplot(data=mode_points, x=feature, y=target_label, zorder=1,
                                         color='xkcd:rust', errorbar=None)
         ax.set_title(f'{target} vs {feature}')
         ax.set_xlabel("")
