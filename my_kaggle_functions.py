@@ -1024,7 +1024,7 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional
     noise_ceil_train = int(0.01 * threshold * df_train.shape[0])
     noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
 
-    cat_features = [f for f in features if (df[f].dtype='category' or df[f].dtype='object' or df[f].dtype='int')]
+    cat_features = [f for f in features if (df[f].dtype=='category' or df[f].dtype=='object' or df[f].dtype=='int')]
     other_features = [f for f in features if f not in cat_features]
     if other_features is not None:
         print(f"Features not evaluated for noise. Check data_type: {other_features}")
