@@ -254,7 +254,7 @@ def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
         print("=" * 69)
         print(df_plot[numeric_cols].describe().T)
    
-    if len(numeric_cols) > 0:
+    if len(non_numeric_cols) > 0:
         print("=" * 69)
         print(df_plot[non_numeric_cols].describe().T)
 
