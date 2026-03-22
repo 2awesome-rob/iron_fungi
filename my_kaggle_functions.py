@@ -306,9 +306,10 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     unplotted = []
     
     # single precalculation of sampled/sorted data
+    label_order = sorted(df_plot[label].dropna().unique().tolist(), reverse=True)
+    df[label] = pd.Categorical(df[label], categories=label_order, ordered=True)
     df_scatter = df_plot.sample(n=SAMPLE, random_state=SEED)
     df_line = df_plot.sample(n=SAMPLE//10, random_state=SEED)
-    label_order = sorted(df_plot[label].dropna().unique().tolist(), reverse=True)
 
     # determine nature of target
     tgt_cat = (df_plot[target].dtype == "O" or df_plot[target].dtype == bool or 
