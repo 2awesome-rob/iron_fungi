@@ -26,7 +26,10 @@ import lightgbm as lgb
 import xgboost as xgb
 import catboost as catb
 
-import umap
+try:
+    import umap
+except Exception:
+    print(f"UMAP emeddings not available in this environment")
 
 from scipy import stats
 import math
@@ -92,6 +95,8 @@ def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
         print(f"Using {cores} CPU cores when multiprocessing")
 
     return Globals(device, cores)
+
+DEVICE, CORES = set_globals()
 
 def _get_cmap(default:bool=True):
     """helper function to maintain color consistency"""
@@ -194,10 +199,12 @@ def load_tabular_data(
             df_extra[id_feature[0]] = range(len(df), len(df) + len(df_extra))
             overlap = set(df[id_feature[0]]).intersection(df_extra[id_feature[0]])
             if overlap:
-                raise ValueError(f"Duplicate IDs generated in extra_data:\n {overlap}")
-            df = pd.concat([df, df_extra.assign(target_mask=True)], ignore_index=True)
+                raise ValueError(f"*** ERROR Duplicate IDs generated in extra_data:\n {overlap} ***")
+            df = pd.concat([df.assign(extra_mask=False), 
+                            df_extra.assign(extra_mask=True, target_mask=True)],
+                           ignore_index=True)
         except Exception as e:
-            print(f"Error loading extra_data: {e}")
+            print(f"*** ERROR loading extra_data: {e} ***")
 
     # Clean feature names
     features, clean_map = _clean_feature_names(features)
@@ -219,6 +226,7 @@ def load_tabular_data(
         print("=" * 69)
 
     targets += ["target_label", "target_mask"]
+    if extra_data: targets.append("extra_mask")
     df.set_index(id_feature, inplace=True)
     return TabularData(df, features, targets, target)
 
@@ -267,16 +275,16 @@ def plot_target_eda(df: pd.DataFrame, target: str,
     else:
         df_plot = df[[target]].copy()
 
-    n_unique = df[target].nunique()
+    n_unique = df_plot[target].nunique()
 
     if df_plot[target].dtype == 'float' or (
         df_plot[target].dtype == 'int' and n_unique > hist_threshold):
         sns.histplot(df_plot[target], kde=True)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
-        y_order = sorted(df_plot[target].unique().tolist())
-        df_plot[target] = pd.Categorical(df_plot[target], categories=y_order, ordered=True)
-        sns.countplot(data=df_plot, x=target, order=y_order)
+        tgt_order = sorted(df_plot[target].unique().tolist())
+        df_plot[target] = pd.Categorical(df_plot[target], categories=tgt_order, ordered=True)
+        sns.countplot(data=df_plot, x=target, order=tgt_order)
     plt.title(title)
     plt.yticks([])
     plt.tight_layout()
@@ -482,7 +490,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                    labels=w_lbl if i == 0 else None)
             ax.set_title(f'{feature} pct by target')
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color='xkcd:steel grey')
-            ax.text(-1.3, -1.3, outer_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
+            ax.text(-1.3, 1.3, outer_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
 
     def _plot_dt_distribution(ax, feature, freq, window):
         df_td = df_plot.groupby([pd.Grouper(key=feature, freq=freq)])[target].count().rename("count_td").reset_index()
@@ -591,80 +599,142 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         top_y = row_anchors[i + 1].get_position().y1
         y_pos = (bottom_y + top_y) / 2
         line = mpl.lines.Line2D([0.05, 0.95], [y_pos, y_pos], transform=fig.transFigure,
-                      color='black', linewidth=0.5, linestyle='--')
+                      color="xkcd:slate", linewidth=0.5, linestyle='--')
         fig.add_artist(line)
     plt.show()
 
-def plot_pairplot(df: pd.DataFrame, features: list, sample: int=250, title: str="", **kwargs) -> None:
+def plot_compare_features(df: pd.DataFrame, features: List[str], target:Optional[str] = None,
+                  sample: int=250, title: str="Feature to Feature Comparison") -> None:
     """
-    pairplot for feature to feature comparisons
+    for visualizing feature to feature comparisons
     -----------
-    plots:
+    if few numeric features plots:
         - pairwise scatterplots for numeric features
         - kde histograms on the diagonal
         - contour lines on the lower triangle to show density of points in scatterplots
+    if many numeric features, plots:
+        - heatmap of linear correlation between features
     for performance, limits scatterplots to a sample of the data
-    -----------
-    requires: seaborn, matplotlib, pandas
     """
-    print("=" * 69)
-    plot_df = df[features].sample(n = min(sample, df.shape[0]), random_state=69)
-    g = sns.pairplot(plot_df, diag_kind="kde", **kwargs)
-    g.map_lower(sns.kdeplot, levels=4, color="xkcd:slate")
-    g.figure.suptitle(title, x = 0.98, ha = 'right', y=1.01)
-    plt.show()
+    if 'target_mask' in df.columns:
+        df_plot = df[df.target_mask.eq(True)]
+    else:
+        df_plot = df.copy()
 
-def plot_feature_corr(df, features, target=None):
-    cmap = _get_cmap() 
     plot_features = [f for f in features if
-                     (df[f].dtype == int or df[f].dtype == float)]
-    if target is not None:
-        plot_features.insert(0, target)
-    plt.figure(figsize=(8,6))
-    sns.heatmap(data=df[plot_features].corr(), 
-        mask=np.tril(df[plot_features].corr()), 
-        annot=True if (len(plot_features)<12) else False, 
-        fmt='.2f', 
-        square=True,
-        cbar=False,
-        cmap=cmap, 
-        vmin = -1, vmax = 1,
-        linewidth=1, linecolor='white')
+                     (df[f].dtype == 'float' or df[f].dtype == 'int')]
+    kwargs = {'hue': None}
 
-    #plt.xticks(())
-    plt.xlabel("")
-    plt.ylabel("")
+    if target is not None:
+        if df_plot[target].nunique() < 8:
+            kwargs['hue'] = target
+            plot_features = [target] + plot_features
+        elif (df_plot[target].dtype=='int' or df[target].dtype == 'float'):
+            plot_features = [target] + plot_features
+
+    plt.figure(figsize=(8,8))
+    if len(plot_features) < 10:
+        df_plot = df_plot.sample(n = min(sample, df_plot.shape[0]), random_state=69)    
+        g = sns.pairplot(df_plot[plot_features], diag_kind="kde", **kwargs)
+        g.map_lower(sns.kdeplot, levels=4, color='xkcd:steel grey')
+        g.figure.suptitle(title, x = 0.98, ha = 'right', y=1.01)
+    
+    else:
+        cmap = _get_cmap() 
+        sns.heatmap(data=df[plot_features].corr(), 
+            mask=np.tril(df[plot_features].corr()), 
+            annot=True if (len(plot_features)<16) else False, 
+            fmt='.2f', 
+            square=True,
+            cbar=False,
+            cmap=cmap, 
+            vmin = -1, vmax = 1,
+            linewidth=1, linecolor='white')
+        plt.xlabel("")
+        plt.ylabel("")
     plt.show()
 
-def plot_countplots(df, features):
+def print_pca_loadings(df: pd.DataFrame, features: List[str], filter_small: bool=True) -> None:
     """
-    should work for 2 datasets (target_mask = True/False)
-    need to test for 3 datasets (target_mask = 0/1/2)
-    -------
-    assumes:
-        - target_mask feature indicates number of datasets to compare
-    requires:
-    seaborn, pandas, matplot
+    normalizes and prints PCA loadings for selected features 
+    -----------
+    useful for understanding relationships in the data and informing feature engineering decisions
+    -----------
+    requires: pandas, scikit learn
+    """ 
+    plot_features = [f for f in features if
+                     (df[f].dtype == 'float' or df[f].dtype == 'int')]
+
+    X = df[df.target_mask.eq(True)][plot_features[:10]]
+    X = (X - X.mean()) / X.std()  # standardize features before PCA
+    pca = skl.decomposition.PCA()
+    X_pca = pca.fit_transform(X)
+    component_names = [f"PCA{i+1}" for i in range(X_pca.shape[1])]
+    loadings = pd.DataFrame(
+        pca.components_.T,         # transpose the matrix of loadings
+        columns=component_names,   # so the columns are the principal components
+        index=X.columns,           # and the rows are the original features
+    )
+    if filter_small:
+        loadings[(loadings > -0.1) & (loadings < 0.1)] = ""
+    print(loadings)
+
+def plot_feature_transforms(df: pd.DataFrame, features: List[str], Transformer=None)-> None:
+    """
+    Plots histogram distribution of feature variable with different transformations 
+    Informs feature transformation and scaling decisions 
+    """
+    for feature in features:
+        if 'target_mask' in df.columns:
+            df_plot = df[df.target_mask.eq(True)][feature].to_frame()
+        else:
+            df_plot = df[feature].to_frame()
+        X = df_plot[feature].values.reshape(-1,1)
+        df_plot['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
+        df_plot['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
+        df_plot['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
+        df_plot['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
+        if Transformer is None:
+            df_plot['np_log1p'] = np.log1p(X)
+        else:
+            df_plot['Transformer'] = Transformer.fit_transform(X)
+        columns = list(df_plot.columns)
+        fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
+        for i, col in enumerate(columns):
+            plt.subplot(1, len(columns), i+1)
+            sns.histplot(data=df_plot, stat='percent', x=col, kde=False, bins=30, legend = False)
+        plt.show()
+
+def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
+    """
+    countplot for dataset to dataset comparisons
+    -----------
+    plots number of unique values for each feature by data set (train, test, original)
     """
     print("=" * 69)
-    datasets = df['target_mask'].nunique()
-    
+    datasets = 3 if 'extra_mask' in df.columns else 2
+
+    df_train = df[df.target_mask.eq(True)]
+    df_test = df[df.target_mask.eq(False)]
+
     my_blues = sns.dark_palette("SteelBlue", n_colors=len(features)*2, reverse = True)
     my_yellows = sns.light_palette("GoldenRod", n_colors=len(features)*2, reverse = True)
-    my_greys = sns.light_palette("LightGrey", n_colors=len(features))
-
-
+    
     fig, axs = plt.subplots(figsize=(12,4))
 
     if datasets == 3:
-        sns.barplot(x = features, y = df.query('target_mask == 2')[features].nunique().values, palette = my_greys, linewidth = 1.5, edgecolor = 'k')
+        my_greys = sns.light_palette("LightGrey", n_colors=len(features))
+        df_extra = df_train[df_train.extra_mask.eq(True)]
+        df_train = df_train[df_train.extra_mask.eq(False)]
+        sns.barplot(x = features, y = df_extra[features].nunique().values, palette = my_greys, linewidth = 1.5, edgecolor = 'k')
+
     sns.barplot(x = features,
-                y = df.query('target_mask == True')[features].nunique().values, 
+                y = df_train[features].nunique().values, 
                 palette = my_blues, 
                 gap = 0.12,
                 linewidth = 1, edgecolor = 'k')
     sns.barplot(x = features,
-                y = df.query('target_mask == False')[features].nunique().values, 
+                y = df_test[features].nunique().values, 
                 palette = my_yellows, 
                 gap = 0.36,
                 linewidth = 1, edgecolor = 'k')
@@ -691,60 +761,8 @@ def plot_countplots(df, features):
     plt.suptitle(t = t, fontsize = 10, x = 0.9, ha ='right') 
     sns.despine()
     plt.show()
-    return
 
-def print_pca_loadings(df: pd.DataFrame, features: list, filter_small: bool=True) -> None:
-    """
-    prints PCA loadings for selected features in df
-    -----------
-    useful for understanding relationships in the data and informing feature engineering decisions
-    -----------
-    requires: pandas, scikit learn
-    """ 
-    X = df[df.target_mask.eq(True)][features[:10]]
-    X = (X - X.mean()) / X.std()  # standardize features before PCA
-    pca = skl.decomposition.PCA()
-    X_pca = pca.fit_transform(X)
-    component_names = [f"PCA{i+1}" for i in range(X_pca.shape[1])]
-    loadings = pd.DataFrame(
-        pca.components_.T,         # transpose the matrix of loadings
-        columns=component_names,   # so the columns are the principal components
-        index=X.columns,           # and the rows are the original features
-    )
-    if filter_small:
-        loadings[(loadings > -0.1) & (loadings < 0.1)] = ""
-    print(loadings)
-
-def plot_feature_transforms(df_: pd.DataFrame, feature: str, Transformer=None)-> None:
-    """
-    Plots histogram distribution of feature variable with different transformations 
-    Informs feature transformation feature engineering decisions 
-    -----------
-    Assumes feature is numeric and has many unique values (not categorical or boolean or numeric with few unique values)
-    -----------
-    requires: pandas, numpy, seaborn, matplotlib, scikit learn
-    """
-    try:
-        df = df_[df_.target_mask.eq(True)][feature].to_frame()
-    except:
-        df = df_[feature].to_frame()
-    X = df[feature].values.reshape(-1,1)
-    df['StandardScaler']  = skl.preprocessing.StandardScaler().fit_transform(X)
-    df['PowerTransformer']  = skl.preprocessing.PowerTransformer().fit_transform(X)
-    df['QuantileTransformer']  = skl.preprocessing.QuantileTransformer().fit_transform(X)
-    df['MinMaxScaler'] = skl.preprocessing.MinMaxScaler(feature_range=(0, 1)).fit_transform(X)
-    if Transformer is None:
-        df['np_log1p'] = np.log1p(X)
-    else:
-        df['Transformer'] = Transformer.fit_transform(X)
-    columns = list(df.columns)
-    fig, axs = plt.subplots(nrows=1, ncols=len(columns), sharey=True, figsize=(15,3))
-    for i, col in enumerate(columns):
-        plt.subplot(1, len(columns), i+1)
-        sns.histplot(data=df, stat='percent', x=col, kde=False, bins=30, legend = False)
-    plt.show()
-
-def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> None:
+def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, verbose: bool=True)-> None:
     """
     checks that categorical features have consistent unique values and 
     similar distributions between training and testing data
@@ -759,7 +777,7 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
     df_train = df[df.target_mask.eq(True)]
     df_test = df[df.target_mask.eq(False)]
     
-    def _print_consistency(feature, feature_values, df_train=df_train, df_test=df_test, pct_diff=pct_diff):
+    def _print_consistency(feature, feature_values):
         dict_index = {}
         for v in feature_values:
             try:
@@ -800,21 +818,31 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1)-> 
             all_v = list(set(train_v) | set(test_v))
             _print_consistency(feature, all_v)
 
+    if verbose:
+        plot_countplots(df, features)
+
 def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
-    features = [f for f in df.columns if f not in targets and 
-                df[f].dtype != 'category' and df[f].dtype!='bool']
-    features_alt = [f for f in df.columns if f not in targets and 
+    obj_features = [f for f in df.columns if f not in targets and
+                        df[f].dtype == 'O']
+    if obj_features != []:
+        print(f"Object features remain in training set: {obj_features}")
+        
+    num_features = [f for f in df.columns if f not in targets and 
                 (df[f].dtype == 'float' or df[f].dtype == 'int')]
-    if features == features_alt:
-        unscaled_features = [f for f in features if (df[f].mean() > 1 or df[f].mean() <-1)]
-        if unscaled_features == []:
-            print("All features scaled")
-        else:
-            print(f"Consider scaling: {unscaled_features}")
-    elif features==[]:
+    if num_features==[]:
         print("No numeric features in DataFrame")
+        return
+    
+    skewed_features = [f for f in num_features if (df[f].mean() > 1 or df[f].mean() <-1)]
+    unscaled_features = [f for f in num_features if (df[f].max() > 10 or df[f].min() <-10)]
+    if skewed_features == [] and unscaled_features == []:
+        print("All features scaled")
     else:
-        print(f"Object features: {[f for f in features if f not in features_alt]}")
+        if skewed_features:
+            print(f"Consider transforming: {skewed_features}")
+        if unscaled_features:
+            print(f"Consider scaling: {unscaled_features}")
+    return        
 
 ########################################
 # Data cleaning 
