@@ -999,7 +999,7 @@ def clean_strings(df: pd.DataFrame, features: List[str],
     return df
 
 def _get_mean_std(df, feature, target):
-    if "target_mask" if df.columns:
+    if "target_mask" in df.columns:
         df_group = df[df.target_mask.eq(True)]
     else: 
         df_group = df.copy()
