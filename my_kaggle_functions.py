@@ -53,6 +53,42 @@ from typing import NamedTuple
 
 ########################################
 # Initialization and data loading functions
+def _get_cmap(default:bool=True):
+    """helper function to maintain color consistency"""
+    if default: return 'cividis'
+    else: return 'viridis'
+
+def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
+                ) -> Union[List, Dict]:
+    """
+    Generate color palettes for consistent visualizations.
+    If color_keys is None, returns a palette (list of colors).
+    If color_keys is provided, returns a dict mapping keys to colors.
+    """
+    my_palette = sns.xkcd_palette([
+        'ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender',
+        'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender'])
+    if color_keys is None:
+        return my_palette
+
+    n_colors = len(color_keys)
+    if n_colors <= len(my_palette):
+        palette = my_palette[:n_colors]
+
+    elif n_colors <= n_hues * n_sats:
+        palette = []
+        for j in range(n_hues):
+            for i in range(n_sats):
+                palette.append(sns.desaturate(my_palette[j % len(my_palette)], 1 - .2 * i))
+        palette = palette[:n_colors]
+
+    else:
+        cmap_name = _get_cmap()
+        cmap = mpl.colormaps[cmap_name].resampled(n_colors)
+        palette = [cmap(i / n_colors) for i in range(n_colors)]
+    
+    return dict(zip(color_keys, palette))
+
 class Globals(NamedTuple):
     device: str
     cores: int
@@ -97,42 +133,6 @@ def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
     return Globals(device, cores)
 
 DEVICE, CORES = set_globals()
-
-def _get_cmap(default:bool=True):
-    """helper function to maintain color consistency"""
-    if default: return 'cividis'
-    else: return 'viridis'
-
-def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
-                ) -> Union[List, Dict]:
-    """
-    Generate color palettes for consistent visualizations.
-    If color_keys is None, returns a palette (list of colors).
-    If color_keys is provided, returns a dict mapping keys to colors.
-    """
-    my_palette = sns.xkcd_palette([
-        'ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender',
-        'carolina blue', 'sunflower', 'lichen', 'blush pink', 'dusty lavender'])
-    if color_keys is None:
-        return my_palette
-
-    n_colors = len(color_keys)
-    if n_colors <= len(my_palette):
-        palette = my_palette[:n_colors]
-
-    elif n_colors <= n_hues * n_sats:
-        palette = []
-        for j in range(n_hues):
-            for i in range(n_sats):
-                palette.append(sns.desaturate(my_palette[j % len(my_palette)], 1 - .2 * i))
-        palette = palette[:n_colors]
-
-    else:
-        cmap_name = _get_cmap()
-        cmap = mpl.colormaps[cmap_name].resampled(n_colors)
-        palette = [cmap(i / n_colors) for i in range(n_colors)]
-    
-    return dict(zip(color_keys, palette))
 
 class TabularData(NamedTuple):
     df: 'pd.DataFrame'
