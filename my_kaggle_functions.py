@@ -132,7 +132,7 @@ def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
 
     return Globals(device, cores)
 
-DEVICE, CORES = set_globals()
+DEVICE, CORES = set_globals(verbose=False)
 
 class TabularData(NamedTuple):
     df: 'pd.DataFrame'
@@ -632,14 +632,13 @@ def plot_compare_features(df: pd.DataFrame, features: List[str], target:Optional
         elif (df_plot[target].dtype=='int' or df[target].dtype == 'float'):
             plot_features = [target] + plot_features
 
-    plt.figure(figsize=(8,8))
     if len(plot_features) < 10:
         df_plot = df_plot.sample(n = min(sample, df_plot.shape[0]), random_state=69)    
         g = sns.pairplot(df_plot[plot_features], diag_kind="kde", **kwargs)
         g.map_lower(sns.kdeplot, levels=4, color='xkcd:steel grey')
         g.figure.suptitle(title, x = 0.98, ha = 'right', y=1.01)
-    
     else:
+        plt.figure(figsize=(8,8))
         cmap = _get_cmap() 
         sns.heatmap(data=df[plot_features].corr(), 
             mask=np.tril(df[plot_features].corr()), 
@@ -649,7 +648,7 @@ def plot_compare_features(df: pd.DataFrame, features: List[str], target:Optional
             cbar=False,
             cmap=cmap, 
             vmin = -1, vmax = 1,
-            linewidth=1, linecolor='white')
+            linewidth=0.5, linecolor='white')
         plt.xlabel("")
         plt.ylabel("")
     plt.show()
@@ -748,11 +747,11 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
             axs.text(x, y, value, fontsize=9, ha='left', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="LightGrey", boxstyle='round', linewidth=1, edgecolor='k'))
         elif (datasets == 3 and i < 2 * j) or (datasets == 2 and i < j):
-            x = p.get_x() + 1 * p.get_width()/2
+            x = p.get_x() + 0.5 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='center', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="SteelBlue", boxstyle='round', linewidth=1, edgecolor='k'))
         else:
-            x = p.get_x() + p.get_width()/0.75
+            x = p.get_x() + 1.2 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor='GoldenRod', boxstyle='round', linewidth=1, edgecolor='k'))
     plt.xticks(rotation=45, fontsize=10)
@@ -844,23 +843,42 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
             print(f"Consider scaling: {unscaled_features}")
     return        
 
+def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, sample: int=5000):
+    """
+    plots lag and autocorrelation on a downsampe of the df
+    needs a better sampling technique
+    """
+    print("Experimental - need to validate")
+    if 'target_mask' in df.columns:
+        df_plot = df[df.target_mask.eq(True)]
+        df_plot = df_plot.sample(min(len(df), sample))
+    else:
+        df_plot = df.sample(min(len(df), sample))
+
+    ds = df_plot[[time_feature, target]].set_index(time_feature)
+    _, axs = plt.subplots(nrows=2, ncols=1, figsize=(5, 3))
+    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
+    pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
+    plt.show()
+
+
 ########################################
 # Data cleaning 
-def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=False, reset_index: bool=False, verbose: bool=True) -> pd.DataFrame:
+def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
+                      drop: bool=False, verbose: bool=True) -> pd.DataFrame:
     """
     Checks for duplicate rows of selected features in df.
     Returns:
     - DataFrame with duplicate rows dropped from training data if drop=True.
-    Requires: pandas
     """
-    try:
+    if 'target_mask' in df.columns:
         mask = df.target_mask.eq(True)
         train_df = df[mask]
         test_df = df[~mask]
-    except:
+    else:
         print("Unable to separate test and training data")
         print(f"{df[features].duplicated(keep=False).sum()} duplicates in DataFrame")
-        return
+        return df
 
     # Find duplicates in training data
     duplicate_mask = train_df[features].duplicated(keep=False)
@@ -868,11 +886,10 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
 
     # Find overlap between train and test
     overlap = pd.merge(train_df[features], test_df[features], how='inner')
-    n_overlap = overlap.shape[0]
 
     print("=" * 69)
     print(f"There are {n_duplicates} duplicated rows in the training data set.")
-    print(f"There are {n_overlap} overlapping observations that appear in both the train and test data sets")
+    print(f"There are {overlap.shape[0]} overlapping observations that appear in both the train and test data sets")
     print("=" * 69)
 
     if verbose and n_duplicates > 0:
@@ -880,46 +897,57 @@ def check_duplicates(df: pd.DataFrame, features: list, target: str, drop: bool=F
         print("=" * 69)
         plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
         print("=" * 69)
-        #TODO: add more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
+        #TODO: consider more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
         #TODO: show examples of duplicated rows, highlight differences in target values for duplicated rows, and visualize feature distributions for duplicated vs non-duplicated rows to look for patterns that could explain the duplicates or target differences
-        #TODO: for duplicates in training data, compare how different the target values are for duplicated rows and if there are any patterns in the features that could explain the duplicates or target differences
     if drop and n_duplicates > 0:
         print("Dropping duplicated rows from training data set...")
-        df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="last")
+        df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="first")
         df = df.dropna(subset=features)
-        #TODO: only reset index on the training dataset. can we do with df.loc?
-        if reset_index: df = df.reset_index(drop=True)
         train_df = df[mask] #reset train_df after dropping rows 
         duplicate_mask = train_df[features].duplicated(keep=False)
         overlap = pd.merge(train_df[features], test_df[features], how='inner')
         print(f"{duplicate_mask.sum()} duplicated rows remain in training data set.")
         print(f"{overlap.shape[0]} overlapping observations remain in the train and test data sets")
-        if reset_index: print("Index reset.")
-        else: print("Index NOT reset")
         print("=" * 69)
     return df
 
-def plot_null_data(df:pd.DataFrame, features:list, verbose:bool=True)->list:
-    def _calculate_null(df, features=features):
+def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
+    """
+    returns a list of features with null data in 
+    """
+    def _calculate_null(df):
         ds = (df[features].isnull().sum() / len(df)) * 100
         return ds
 
-    def _plot_null(ds, title="percentage of missing values in training data"):
+    #TODO combine plots into single plot
+    def _plot_null(ds, title="Percentage of missing values in training data"):
         ds.sort_values(ascending=False, inplace = True)
         ds = ds[ds > 0]
         ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
         plt.title(title)
         plt.xlabel('Percentage')
         plt.show()
+
     def _plot_missing_heatmap(df, title="null value heatmap"):
+        cmap = _get_cmap()
         sample_size = min(df.shape[0], 1000)
         plt.figure(figsize=(8, 6))
-        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap='cividis')
+        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap)
         plt.title(title)
         plt.show()
-        
-    ds_train = _calculate_null(df[df.target_mask.eq(True)])
-    ds_test = _calculate_null(df[df.target_mask.eq(False)])
+
+    if 'target_mask' in df.columns:
+        mask = df.target_mask.eq(True)
+        ds_train = _calculate_null(df[df.target_mask.eq(True)])
+        ds_test = _calculate_null(df[df.target_mask.eq(False)])
+    else:
+        print("Unable to separate test and training data")
+        ds = _calculate_null(df)
+        ds = ds[ds > 0]
+        print("Features with missing data:")
+        print(ds)
+        return ds.index.tolist()
+
     if (ds_train == 0).all() and (ds_test == 0).all():
         print("=" * 69)
         print("No Missing Data")
@@ -929,69 +957,22 @@ def plot_null_data(df:pd.DataFrame, features:list, verbose:bool=True)->list:
         print("=" * 69)
         print("                    Percent Null")
         print("=" * 69)
-        df_display = ds_train.to_frame(name = 'training data')
-        df_display['test data']  = ds_test
-        df_display = df_display.loc[~(df_display == 0).all(axis=1)]
-        df_display.round(4)
-        print(df_display)
+        df_plot = ds_train.to_frame(name = 'training data')
+        df_plot['test data']  = ds_test
+        df_plot = df_plot.loc[~(df_plot == 0).all(axis=1)]
+        df_plot.round(4)
+        print(df_plot)
         if verbose:
             _plot_null(ds_train)
             _plot_missing_heatmap(df)
-        return df_display.index.tolist()
+        return df_plot.index.tolist()
 
-def impute_using(df: pd.DataFrame, impute_informant: str, impute_features:list)-> pd.DataFrame:
+def clean_strings(df: pd.DataFrame, features: List[str], 
+                       string_length: int=5, fillna:bool=True) -> pd.DataFrame:
     """
-    uses a control variable to impute values into a list of features with missing data
-    rather than simply filling with overall mean, fills with mean based on quantile cuts of informant feature
-    ------- 
-    requires: scikit-learn, pandas
-    """
-    df['control'] = skl.preprocessing.QuantileTransformer(n_quantiles=1000).fit_transform(
-        df[[impute_informant]]
-    )
-    for f in impute_features:
-        ds = df.groupby('control')[f].transform(lambda g: g.fillna(g.mean()))
-        df[f] = ds
-        df[f].fillna(df[f].mean(), inplace=True)
-    df.drop('control', axis=1, inplace=True)
-    return df
-
-def regression_imputer(df: pd.DataFrame, features: list, split: str, tgt: str,
-                       validation_size: float=0.15, impute: bool=True, verbose: bool=False):
-    """
-    """
-    SEED = 80085
-    X_test = df[df[split].eq(True)][features]
-    y_test = df[df[split].eq(True)][tgt]
-
-    X = df[df[split].eq(False)][features]
-    y = df[df[split].eq(False)][tgt]
-
-    X_train, X_val, y_train, y_val  = skl.model_selection.train_test_split(
-        X, y, test_size = validation_size, random_state = SEED)
-
-    imp_model, _ = train_and_score_model(
-        X_train, X_val, y_train, y_val, 
-        model = lgb.LGBMRegressor(verbose=-1), task="regression_rmse", verbose=verbose
-    )
-
-    if impute: df.loc[df[split].eq(True), tgt] = imp_model.predict(X_test)
-
-    return df
-
-def clean_categoricals(df: pd.DataFrame, features: list, 
-                       string_length: int=3, fillna:bool=True) -> pd.DataFrame:
-    """
-    edits strings in categorical feature columns to be more consistent and easier to work with
+    edits strings in feature columns to be more consistent and easier to work with
     -----------
-    returns: 
-    updated df with cleaned categorical feature columns
-        - converted to lowercase
-        - replaces spaces and special characters
-        - trims to specified max length
-        - converts to category dtype
-    -----------
-    requires: pandas
+    updated df with cleaned strings assigned as categorical features
     """
     for col in df[features].select_dtypes(include=['object', 'string']).columns:
         if fillna: 
@@ -1002,7 +983,7 @@ def clean_categoricals(df: pd.DataFrame, features: list,
             .str.strip()
             .str.casefold()
             .str.replace("-", "_", regex=False)
-            .str.replace(". ", "__", regex=False)
+            .str.replace(". ", "_", regex=False)
             .str.replace(", ", "_", regex=False)
             .str.replace(" ", "_", regex=False)
             .str.replace("(", "", regex=False)
@@ -1013,13 +994,14 @@ def clean_categoricals(df: pd.DataFrame, features: list,
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
-def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, threshold:float=0.1)-> pd.DataFrame:
+def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional[str]=None, threshold:float=0.1)-> pd.DataFrame:
     """
-    identifies and removes noise from categorical features based on unique value counts and target distribution patterns
+    identifies and removes identified noise from categorical features
     -----------
     returns: df with 
-        - new de-noised categorical features added for features where noise above threshold was identified
+        - new de-noised categorical features 
         - new target mean features when target is provided
+            # for 0.1% threshold this is 1 in 1000 or 1000 in 1million
     -----------
     requires: pandas, numpy
     """
@@ -1030,33 +1012,53 @@ def denoise_categoricals(df: pd.DataFrame, features: list, target: str=None, thr
         df[f"{feature}_tgt_std"] = df[feature].replace(tgt_std).astype(float)
         return df
     
-    df_train = df[df.target_mask.eq(True)]
-    df_test = df[df.target_mask.eq(False)]
-    #assume threshold is given in percent
+    if 'target_mask' in df.columns:
+        df_train = df[df.target_mask.eq(True)]
+        df_test = df[df.target_mask.eq(False)]
+    else:
+        print("Unable to separate test and training data")
+        return df
+
+    # assume threshold is given in percent
+    # this is the minimum number of values required to be considered signal vs noise
     noise_ceil_train = int(0.01 * threshold * df_train.shape[0])
     noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
 
-    for feature in features:
-        noise = -1 if df[feature].cat.categories.dtype == 'int' or df[feature].cat.categories.dtype == 'float' else "noise"
+    cat_features = [f for f in features if (df[f].dtype='category' or df[f].dtype='object' or df[f].dtype='int')]
+    other_features = [f for f in features if f not in cat_features]
+    if other_features is not None:
+        print(f"Features not evaluated for noise. Check data_type: {other_features}")
+
+    for feature in cat_features:
+        df[feature] = df[feature].astype('category')
+        noise_label = -1 if (df[feature].cat.categories.dtype == 'int' or 
+                             df[feature].cat.categories.dtype == 'float') else "noise"
         train_v = list(df_train[feature].unique())
-        test_v = list(df_test[feature].unique())
-        train_noise = [f for f in train_v if f not in test_v]
-        test_noise = [f for f in test_v if f not in train_v]
-        values = train_v + test_noise
+#        test_v = list(df_test[feature].unique())
+#        train_noise = [f for f in train_v if f not in test_v]
+#        test_noise = [f for f in test_v if f not in train_v]
+#        values = train_v + test_noise
+        values = list(df[feature].dropna().unique())
+        df[feature].fillna(noise_label, inplace=True)
         if len(train_v) < 2:
             print(f"{feature} is trivial, dropping {feature}")
             df.drop(columns=[feature], inplace=True)
         else:
+            # Identify noise
             noise_dict = {}
-            for v in test_noise + train_noise:
-                noise_dict[v] = noise
+            # noise includes all values that uniquely appear in train or test data
+#            for v in test_noise + train_noise:
+#                noise_dict[v] = noise
+            # noise includes all values that appear infrequently in train or test data
             for v in values:
-                if df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or df_test.groupby(feature)[feature].count()[v] < noise_ceil_test:
+                if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
+                    df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
                     noise_dict[v] = noise
+
             if len(noise_dict.keys()) == 0:
                 print(f"No noise identified in {feature}")
             elif len(noise_dict.keys()) == 1:
-                print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}")
+                print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}.")
             else:
                 df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
                 training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise)].shape[0]
@@ -1123,6 +1125,68 @@ def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5
 
 ########################################
 # Feature Engineering
+
+def _plot_embeddings(df: pd.DataFrame, x:str, y:str, target:Optional[str]=None) -> None:
+    """ helper function for clean scatterplots """
+    if target != None and df[target].nunique() > 10:
+        palette = _get_cmap()
+    else:
+        palette = _get_colors()
+
+    df_plot = df.sample(n=min(750, df.shape[0]), random_state=69)
+    fig, ax = plt.subplots(figsize=(5, 3))
+    sns.scatterplot(data=df_plot, x=df_plot[x], y=df_plot[y], 
+                    hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
+    plt.xticks(())
+    plt.yticks(())
+    plt.xlabel("")
+    plt.ylabel("")
+    plt.show()
+    return
+
+def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str, 
+    sample_size: Optional[float]=None, target:Optional[str]=None, encode_dim:int=8, index: int=1, verbose:bool=True) -> pd.DataFrame:
+    """
+    fits a mapper to a sample of the data, applys the mapping to the full dataset to create new features
+    useful for generating UMAP encoding, PCA loadings or kernal approximations of selected feature space    
+    -----------
+    returns: df with new features added for the encoding
+    """
+    if 'target_mask' in df.columns:
+        df_train = df[df.target_mask.eq(True)]
+    else:
+        df_train = df.copy()
+
+    if sample_size is not None:
+        if sample_size < 1.0:
+            n = min(int(df_train.shape[0] * sample_size), 25000)
+        else:
+            n = min(int(df_train.shape[0]), int(sample_size))
+        df_train = df_train.sample(n=n, random_state=69)
+
+    if mapper == "UMAP":
+        mapper = umap.UMAP(n_neighbors=8, low_memory=True, n_components=encode_dim)
+    elif mapper == "PCA":
+        mapper = skl.decomposition.PCA(n_components=encode_dim)
+    elif mapper == "PLS":
+        mapper = skl.cross_decomposition.PLSRegression(n_components=encode_dim)
+
+    print(f"Fitting embedding function on {len(df_train)} samples....")
+    tic=time()
+    mapper = mapper.fit(df_train[features])
+
+    print("Transforming features to embeddings...")
+    reduced_data = mapper.transform(df[features])
+    
+    cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
+    new_features = pd.DataFrame(reduced_data, columns=cols, index=df.index)
+    
+    print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
+    df = df.join(new_features)
+    if verbose:
+        _plot_embeddings(df, cols[0], cols[1], target)
+    return df
+
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
                            TargetTransformer=skl.preprocessing.StandardScaler(), 
@@ -1293,70 +1357,6 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
     return df
 
 
-def _plot_embeddings(df, x, y, target=None):
-    if target != None and df[target].nunique() > 10:
-        palette = _get_cmap()
-    else:
-        palette = _get_colors()
-
-    df_plot = df.sample(n=min(800, df.shape[0]), random_state=69)
-    fig, ax = plt.subplots(figsize=(5, 3))
-    sns.scatterplot(data=df_plot, x=df_plot[x], y=df_plot[y], 
-                    hue=target, alpha = 0.7, ax=ax, palette=palette, legend=False)
-    plt.xticks(())
-    plt.yticks(())
-    plt.xlabel("")
-    plt.ylabel("")
-    plt.show()
-    return
-
-def get_embeddings(
-    df: pd.DataFrame, features:list, mapper, col_names:str, 
-    sample_size: float=None, target:str=None, encode_dim:int=8, index: int=1, verbose=True) -> pd.DataFrame:
-    """
-    fits a mapper to a sample of the data and then applys the mapping function to the full dataset to create new features
-    useful for generating UMAP encoding, PCA loadings or kernal approximations of selected feature space    
-    -----------
-    returns: 
-    df with new features added for the encoding
-    if sample_size is provided, fits the mapper to a sample of the data and applies the mapping function to the full dataset
-    if sample_size is not provided, fits the mapper to the full dataset and uses the fitted model to transform the data
-    -----------
-    assumes: mapper is a scikit learn PCA or kernel approximation object with fit_transform method or a UMAP object with fit and transform methods
-    requires: numpy, pandas, time, matplotlib, seaborn
-    optional: scikit learn, umap
-    """
-    df_train = df[df.target_mask.eq(True)].copy()
-    if mapper == "UMAP":
-        mapper = umap.UMAP(n_neighbors=8, low_memory=True, n_components=encode_dim)
-    elif mapper == "PCA":
-        mapper = skl.decomposition.PCA(n_components=encode_dim)
-    elif mapper == "PLS":
-        mapper = skl.cross_decomposition.PLSRegression(n_components=encode_dim)
-    tic=time()
-    print("Training embedding function...")
-    if sample_size is not None:
-        if sample_size < 1.0:
-            n = min(int(df_train.shape[0] * sample_size), 25000)
-        else:
-            n = min(int(df_train.shape[0]), int(sample_size))
-        df_train = df_train.sample(n=n, random_state=69)
-
-    print(f"Fitting mapper on {n} samples....")
-    mapper = mapper.fit(df_train[features])
-
-    print("Mapping features to embeddings...")
-    reduced_data = mapper.transform(df[features])
-    
-    cols = [(col_names + str(i)) for i in range(index, index + reduced_data.shape[1])]
-    new_features = pd.DataFrame(reduced_data, columns=cols, index=df.index)
-    
-    print(f"Added {len(cols)} {col_names} embedding features in {time()-tic:.2f}sec")
-    df = df.join(new_features)
-    if verbose:
-        _plot_embeddings(df, cols[0], cols[1], target)
-    return df
-
 def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, verbose:bool=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
@@ -1488,21 +1488,6 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
         _plot_circle(df, [f'{feature}_{points}_sin', f'{feature}_{points}_cos'])
 
     return df
-
-def plot_lag(df:pd.DataFrame, feature:str, target:str, lag: int=5, sample: int=None):
-    """
-    """
-    if sample is None:
-        sample = min(len(df)//2, 5000)
-    try:
-        df_plot = df[df.target_mask.eq(True)].sample(sample)
-    except:
-        df_plot = df.sample(sample)
-    ds = df_plot[ [feature, target]].set_index(feature)
-    _, axs = plt.subplots(nrows=2, ncols=1, figsize=(5, 3))
-    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
-    pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
-    plt.show()
 
 ########################################
 # Training
@@ -3063,6 +3048,52 @@ def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
 
 ########################################
 # Decrement when safe
+def impute_using(df: pd.DataFrame, features:List[str], impute_informant: str)-> pd.DataFrame:
+    """
+    DO NOT USE - FUNCTION REQUIRES VALIDATION
+    """
+    print("Experimental Function use with CAUTION")
+    df['control'] = skl.preprocessing.QuantileTransformer(n_quantiles=100).fit_transform(
+        df[[impute_informant]]
+    )
+    for f in features:
+        ds = df.groupby('control')[f].transform(lambda g: g.fillna(g.mean()))
+        df[f] = ds
+        df[f].fillna(df[f].mean(), inplace=True)
+    df.drop('control', axis=1, inplace=True)
+    return df
+
+def regression_imputer(df: pd.DataFrame, features: list, split: str, tgt: str,
+                       validation_size: float=0.15, impute: bool=True, verbose: bool=False):
+    """
+    DO NOT USE - FUNCTION REQUIRES VALIDATION
+    """
+    print("Experimental Function use with CAUTION")
+    SEED = 80085
+    X_test = df[df[split].eq(True)][features]
+    y_test = df[df[split].eq(True)][tgt]
+
+    X = df[df[split].eq(False)][features]
+    y = df[df[split].eq(False)][tgt]
+
+    X_train, X_val, y_train, y_val  = skl.model_selection.train_test_split(
+        X, y, test_size = validation_size, random_state = SEED)
+
+    imp_model, _ = train_and_score_model(
+        X_train, X_val, y_train, y_val, 
+        model = lgb.LGBMRegressor(verbose=-1), task="regression_rmse", verbose=verbose
+    )
+
+    if impute: df.loc[df[split].eq(True), tgt] = imp_model.predict(X_test)
+
+    return df
+
+def clean_categoricals(df: pd.DataFrame, features: list, 
+                       string_length: int=5, fillna:bool=True) -> pd.DataFrame:
+    print("Function will be depricated -> use 'clean_strings'")
+    return clean_strings(df, features, string_length, fillna)
+
+
 def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:int = 8, sample:int = 25000, verbose: bool = True) -> pd.DataFrame:
     print("Function will be depricated -> use 'get_embeddings'")
     return get_embeddings(df, features, "UMAP", "umap", sample_size=sample, target=target, encode_dim=encode_dim,
