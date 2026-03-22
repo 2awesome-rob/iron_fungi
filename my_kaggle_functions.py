@@ -307,7 +307,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     
     # single precalculation of sampled/sorted data
     label_order = sorted(df_plot[target_label].dropna().unique().tolist(), reverse=True)
-    df[target_label] = pd.Categorical(df[target_label], categories=label_order, ordered=True)
+    df_plot[target_label] = pd.Categorical(df_plot[target_label], categories=label_order, ordered=True)
     df_scatter = df_plot.sample(n=SAMPLE, random_state=SEED)
     df_line = df_plot.sample(n=SAMPLE//10, random_state=SEED)
 
@@ -319,8 +319,8 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         tgt_order = sorted(df_plot[target].dropna().unique().tolist(), reverse=True)
         df_plot[target] = pd.Categorical(df_plot[target], categories=tgt_order, ordered=True)
     else:
-        if not y_min: y_min = df[target].min()
-        if not y_max: y_max = df[target].max()
+        if not y_min: y_min = df_plot[target].min()
+        if not y_max: y_max = df_plot[target].max()
 
     if len(features) > 20: print("Plotting first 20 features")
     features = features[:20]
@@ -523,7 +523,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     
     # MAIN PLOT LOOP
     for i, feature in enumerate(features):
-        is_num = df[feature].dtype == 'float' or (df[feature].dtype=='int' and df[feature].nunique() > 4)
+        is_num = df_plot[feature].dtype == 'float' or (df_plot[feature].dtype=='int' and df_plot[feature].nunique() > 4)
         if is_num:
             ax0 = fig.add_subplot(gs[i, 0])
             row_anchors.append(ax0)
@@ -535,13 +535,13 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                 _plot_num_relationship(fig.add_subplot(gs[i, 1]), feature)
             continue
 
-        if df[feature].dtype == 'O':
-            try: df[feature] = pd.to_datetime(df[feature])
+        if df_plot[feature].dtype == 'O':
+            try: df_plot[feature] = pd.to_datetime(df_plot[feature])
             except Exception: pass
 
-        is_dt = True if pd.api.types.is_datetime64_any_dtype(df[feature]) else False
+        is_dt = True if pd.api.types.is_datetime64_any_dtype(df_plot[feature]) else False
         if is_dt:
-            if (df[feature].max() - df[feature].min()) > pd.Timedelta(days=365):
+            if (df_plot[feature].max() - df_plot[feature].min()) > pd.Timedelta(days=365):
                 freq, window ="MS", "monthly"
             else:
                 freq, window = "W", "weekly"
@@ -556,14 +556,14 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                 _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, freq, window)
             continue
 
-        is_cat = (df[feature].dtype == "O" or 
-                  df[feature].dtype == bool or 
-                  df[feature].dtype == "category" or 
-                  (df[feature].dtype=='int' and df[feature].nunique() <= 4))
+        is_cat = (df_plot[feature].dtype == "O" or 
+                  df_plot[feature].dtype == bool or 
+                  df_plot[feature].dtype == "category" or 
+                  (df_plot[feature].dtype=='int' and df_plot[feature].nunique() <= 4))
         if is_cat:
-            order = sorted(df[feature].dropna().unique().tolist())
+            order = sorted(df_plot[feature].dropna().unique().tolist())
             if len(order) <= 64:
-                df[feature] = pd.Categorical(df[feature], categories=order, ordered=True)
+                df_plot[feature] = pd.Categorical(df_plot[feature], categories=order, ordered=True)
                 color_map = _get_colors(color_keys=order, n_hues=6, n_sats=5)
                 ax0 = fig.add_subplot(gs[i, 0])
                 row_anchors.append(ax0)
@@ -586,7 +586,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
 
     if unplotted: print(f"Unplotted Features: {unplotted}")
     # add tear lines between features
-    for i in range(f - 1):
+    for i in range(len(features) - 1):
         bottom_y = row_anchors[i].get_position().y0
         top_y = row_anchors[i + 1].get_position().y1
         y_pos = (bottom_y + top_y) / 2
