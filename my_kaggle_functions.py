@@ -86,8 +86,12 @@ def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
         cmap_name = _get_cmap()
         cmap = mpl.colormaps[cmap_name].resampled(n_colors)
         palette = [cmap(i / n_colors) for i in range(n_colors)]
-    
-    return dict(zip(color_keys, palette))
+        
+    c_map = dict(zip(color_keys, palette))
+    #always plot noise in grey
+    c_map[-1] = 'xkcd:iron'
+    c_map['noise'] = 'xkcd:iron'
+    return c_map
 
 class Globals(NamedTuple):
     device: str
@@ -994,24 +998,34 @@ def clean_strings(df: pd.DataFrame, features: List[str],
         df[col] = df[col].str[:string_length].astype('category')
     return df
 
-def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional[str]=None, threshold:float=0.1)-> pd.DataFrame:
-    """
-    identifies and removes identified noise from categorical features
-    -----------
-    returns: df with 
-        - new de-noised categorical features 
-        - new target mean features when target is provided
-            # for 0.1% threshold this is 1 in 1000 or 1000 in 1million
-    -----------
-    requires: pandas, numpy
-    """
-    def _get_mean_std(df, feature, target):
-        tgt_mean=df[df.target_mask.eq(True)].groupby(feature)[target].mean().to_dict()
-        tgt_std=df[df.target_mask.eq(True)].groupby(feature)[target].std().to_dict()
-        df[f"{feature}_tgt_mu"] = df[feature].replace(tgt_mean).astype(float)
-        df[f"{feature}_tgt_std"] = df[feature].replace(tgt_std).astype(float)
-        return df
+def _get_mean_std(df, feature, target):
+    if "target_mask" if df.columns:
+        df_group = df[df.target_mask.eq(True)]
+    else: 
+        df_group = df.copy()
     
+    std = df_group[target].std()
+    group_stats = df_group.groupby(feature)[target].agg(['mean', 'std']).rename(
+            columns={
+                'mean': f'{target}_by_{feature}_mu',
+                'std': f'{target}_by_{feature}_std'}) 
+    df = df.merge(group_stats, on=feature, how='left')
+    df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
+    return df
+
+def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
+    """
+    identifies and consolidates noise values in categorical features
+    noise is defined as values that appear in 
+       - only train data
+       - only test data
+       - appear infrequently (below threshold) 
+            for 0.05% threshold this is 5 in 10000 or 500 in 1 million samples
+            raising threshold will identify more noise values
+    ---------
+    returns: df with consolidated noise in categorical features 
+    optionally adds new features of target mean and std if target is provided
+    """
     if 'target_mask' in df.columns:
         df_train = df[df.target_mask.eq(True)]
         df_test = df[df.target_mask.eq(False)]
@@ -1039,7 +1053,6 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional
 #        test_noise = [f for f in test_v if f not in train_v]
 #        values = train_v + test_noise
         values = list(df[feature].dropna().unique())
-        df[feature].fillna(noise_label, inplace=True)
         if len(train_v) < 2:
             print(f"{feature} is trivial, dropping {feature}")
             df.drop(columns=[feature], inplace=True)
@@ -1054,9 +1067,10 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional
                 if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
                     df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
                     noise_dict[v] = noise
-
             if len(noise_dict.keys()) == 0:
                 print(f"No noise identified in {feature}")
+                if target is not None:
+                    df = _get_mean_std(df, feature, target)
             elif len(noise_dict.keys()) == 1:
                 print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}.")
             else:
@@ -1064,15 +1078,15 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional
                 training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise)].shape[0]
                 if  training_noise > 0:
                     df[feature] = df[feature].replace(noise_dict)
+                    df[feature].fillna(noise_label, inplace=True)
                     print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
+                    if target is not None:
+                        df = _get_mean_std(df, feature, target)
                 else:
                     print(f"""❌ Unable to denoise {feature}.\n
                               training noise: {training_noise} samples with noise in test data\n
                               noise values in test data: {list(noise_dict.keys())}
                           """)
-        if target is not None:
-            df = _get_mean_std(df, feature, target)
-            
     return df 
 
 def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
@@ -1273,21 +1287,13 @@ def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_feature_by_grouping_on_cat(df: pd.DataFrame, categorys: list, target: str) -> pd.DataFrame:
+def get_feature_by_grouping_on_cat(df: pd.DataFrame, features: list, target: str) -> pd.DataFrame:
     """
     Computes mean and std of a numeric target feature grouped by each category,
     using only rows where df.target_mask == True, and merges the results back.
     """
-    for category in categorys: 
-        group_stats = df[df.target_mask.eq(True)].groupby(category)[target].agg(['mean', 'std']).rename(
-            columns={
-                'mean': f'{target}_by_{category}_mu',
-                'std': f'{target}_by_{category}_std'}) 
-        df = df.merge(group_stats, on=category, how='left')
-
-        df[f'{target}_by_{category}_std'] = df[f'{target}_by_{category}_std'].fillna(
-            df[f'{target}_by_{category}_mu']
-        )
+    for feature in features: 
+        _get_mean_std(df, feature, target)
     return df
 
 def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
@@ -1372,7 +1378,7 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
     if verbose: print(f"Encoding cluster feature '{col_name}'")
     df[col_name] = encoder.fit_predict(X)
     df[f"{col_name}_noise"] = df[col_name] == -1
-    if target is not None:
+    if target is not None and (df[target].dtype == 'float' or df[target].dtype == 'int'):
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
         df[col_name].replace(d, inplace=True)
@@ -1383,24 +1389,17 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         print(f"Added cluster feature '{col_name}' with {df[col_name].nunique()} unique values in {time()-tic:.2f}sec")
         noise_pct = 100 * df[f"{col_name}_noise"].sum() / df.shape[0]
         if noise_pct > 0: print(f"Cluster feature '{col_name}' identified {noise_pct:.2f}% noise")
-        palette = get_colors(color_keys=df[col_name].unique(), get_cmap=True)
+        
         if target is not None:
-            try:
-                plot_features_eda(df[df.target_mask.eq(True)], [col_name], target, label=None)
-            except:
-                plot_features_eda(df, [col_name], target, label=None)
-        df_sampled = df[df[f"{col_name}_noise"]==False].sample(n=min(800, df.shape[0]), random_state=69)
-        reduced_data = skl.decomposition.PCA(n_components=2).fit_transform(df_sampled[features])
-        df_sampled['pca_x'] = reduced_data[:,0]
-        df_sampled['pca_y'] = reduced_data[:,1]
-        fig, ax = plt.subplots(figsize=(5, 3))
-        sns.scatterplot(data=df_sampled, x=df_sampled['pca_x'], y=df_sampled['pca_y'], 
-                            hue=col_name, alpha = 0.7, palette=palette, ax=ax, legend=False)
-        plt.xticks(())
-        plt.yticks(())
-        plt.xlabel("")
-        plt.ylabel("")
-        plt.show()
+            plot_features_eda(df, [col_name], target)
+
+        reduced_data = skl.decomposition.PCA(n_components=2).fit_transform(df[features])
+        df[f'{col_name}_x'] = reduced_data[:,0]
+        df[f'{col_name}_y'] = reduced_data[:,1]
+        #TODO decide to keep or drop these PCA features
+        _plot_embeddings(df, col_name+ '_x', col_name+ '_y', col_name)
+        df.drop(columns=[col_name+ '_x', col_name+ '_y'], inplace=True)
+        
     if not df[f"{col_name}_noise"].any():
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
@@ -1425,7 +1424,7 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
         ax.set_yticks([])
         plt.show()
         
-    my_palette = get_colors()
+    my_palette = _get_colors()
     
     if verbose:
         fig, axs = plt.subplots(nrows=2, ncols=1, sharex = True, figsize=(8,3))
