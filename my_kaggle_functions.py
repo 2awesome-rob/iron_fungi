@@ -283,7 +283,7 @@ def plot_target_eda(df: pd.DataFrame, target: str,
     plt.show()
 
 def plot_features_eda(df: pd.DataFrame, features: List[str], target: str, 
-    label: str = "target_label", high_label: str = "", low_label: str = "", 
+    target_label: str = "target_label", high_label: str = "", low_label: str = "", 
     y_min: float = None, y_max: float = None
     ) -> None:
     """
@@ -306,8 +306,8 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     unplotted = []
     
     # single precalculation of sampled/sorted data
-    label_order = sorted(df_plot[label].dropna().unique().tolist(), reverse=True)
-    df[label] = pd.Categorical(df[label], categories=label_order, ordered=True)
+    label_order = sorted(df_plot[target_label].dropna().unique().tolist(), reverse=True)
+    df[target_label] = pd.Categorical(df[target_label], categories=label_order, ordered=True)
     df_scatter = df_plot.sample(n=SAMPLE, random_state=SEED)
     df_line = df_plot.sample(n=SAMPLE//10, random_state=SEED)
 
@@ -384,7 +384,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
 
     def _plot_num_boxplot(ax, feature, top_label=high_label, bottom_label=low_label):
         sns.boxplot(x=df_plot[feature], palette=MY_PALETTE , ax=ax, legend=False, gap=0.1,
-                    hue=df_plot[label], hue_order=label_order)
+                    hue=df_plot[target_label], hue_order=label_order)
         if top_label == "" and bottom_label == "":
             top_label, bottom_label = label_order[0], label_order[-1]
         ax.text(df_plot[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
@@ -469,7 +469,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         if inner_label == "" and outer_label =="":
             outer_label, inner_label  = label_order[0], label_order[-1]
         for i, label in enumerate(label_order):
-            value_counts = df[df[label] == label][feature].value_counts()
+            value_counts = df[df[target_label] == label][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
             if len(order) > 20:
                 w_lbl = [s if i % 5 == 0 else "" for i, s in enumerate(sorted_counts.index)]
