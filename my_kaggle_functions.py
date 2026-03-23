@@ -2252,7 +2252,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             if n_cats > 2: 
                 oof_pred[val_idx, :] = y_v_pred
             elif n_cats ==2: 
-                oof_pred[val_idx] = y_v_pred[:, 1]
+                oof_pred[val_idx] = y_v_pred[:, 1].reshape(-1, 1)
             else:
                 oof_pred[val_idx] = y_v_pred.reshape(-1,1)
 
