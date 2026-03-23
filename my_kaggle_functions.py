@@ -417,10 +417,15 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_xlabel("")
         if len(order) >= 8:
             x_tic = ax.get_xticks()
-            if len(order) >= 20:
+            if len(order) >=32:
+                x_lbl = [s if i % 16 == 0 else "" for i, s in enumerate(order)]
+                ax.set_xticks(x_tic, x_lbl, rotation=0)
+            elif len(order) >= 16:
                 x_lbl = [s if i % 5 == 0 else "" for i, s in enumerate(order)]
-            else: x_lbl = order
-            ax.set_xticks(x_tic, x_lbl, rotation=90)
+                ax.set_xticks(x_tic, x_lbl, rotation=90)
+            else: 
+                x_lbl = order
+                ax.set_xticks(x_tic, x_lbl, rotation=90)
         ax.set_ylabel("Count")
         ax.set_yticks([])
 
@@ -597,7 +602,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                 df_plot[feature + "_grp"] = df_plot[feature].where(df_plot[feature].isin(top_X), "other")
                 order_grp = top_X + ['other'] if len(value_counts) > 128 else top_X
                 color_map = _get_colors(color_keys=order_grp, n_hues=6, n_sats=5)
-                ax0 = fig.add_subplot(gs[i, :2])
+                ax0 = fig.add_subplot(gs[i, :3])
                 row_anchors.append(ax0)
                 _plot_cat_distribution(ax0, feature + '_grp', order_grp, color_map)
                 continue
@@ -755,15 +760,15 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
         value = f"{p.get_height():,.0f}"
         y = p.get_height()
         if datasets == 3 and i < j:
-            x = p.get_x() 
+            x = p.get_x() + 1.2 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='left', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="LightGrey", boxstyle='round', linewidth=1, edgecolor='k'))
         elif (datasets == 3 and i < 2 * j) or (datasets == 2 and i < j):
-            x = p.get_x() + 0.5 * p.get_width()
+            x = p.get_x() 
             axs.text(x, y, value, fontsize=9, ha='center', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="SteelBlue", boxstyle='round', linewidth=1, edgecolor='k'))
         else:
-            x = p.get_x() + 1.2 * p.get_width()
+            x = p.get_x() + 0.5 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor='GoldenRod', boxstyle='round', linewidth=1, edgecolor='k'))
     plt.xticks(rotation=45, fontsize=10)
@@ -855,7 +860,7 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
             print(f"Consider scaling: {unscaled_features}")
     return        
 
-def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, group_feature:Optional[str]=None, sample: int=800):
+def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group_feature: Optional[str]=None, sample: int=800):
     """
     plots lag and autocorrelation on a downsampe of the df
     """
@@ -937,21 +942,6 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         ds = (df[features].isnull().sum() / len(df)) * 100
         return ds
 
-    #TODO combine plots into single plot
-    def _plot_null(ds, title="Percentage of missing values in training data"):
-        ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
-        plt.title(title)
-        plt.xlabel('Percentage')
-        plt.show()
-
-    def _plot_missing_heatmap(df, title="null value heatmap"):
-        cmap = _get_cmap()
-        sample_size = min(df.shape[0], 1000)
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap)
-        plt.title(title)
-        plt.show()
-
     def _plot_missing_data(df, ds):
         fig, axs = plt.subplots(nrows=1, ncols=2)
         #bar plot
@@ -967,15 +957,14 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         cmap = _get_cmap()
         sample_size = min(df.shape[0], 1000)
         cols = ds.index.tolist()[:10]
-        df_plot = df[cols].sample(sample_size).isnull()
+        df_plot = df[cols.reverse()].sample(sample_size).isnull()
         sns.heatmap(df_plot.T, cbar=False, cmap=cmap, ax=axs[1])
-        axs[0].set_xlim(0, 100)
         axs[1].set_title(f"Top {min(10, len(ds))} of {len(ds)} Features with N/A")
-        axs[0].set_xlabel("")
-        axs[0].set_ylabel("")
-        axs[0].set_xticks([])
+        axs[1].set_xlabel("")
+        axs[1].set_ylabel("")
+        axs[1].set_xticks([])
+#        axs[1].set_yticks([])
         plt.show()
-
 
     if 'target_mask' in df.columns:
         mask = df.target_mask.eq(True)
@@ -1106,7 +1095,7 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
             for v in values:
                 if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
                     df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
-                    noise_dict[v] = noise
+                    noise_dict[v] = noise_label
             if len(noise_dict.keys()) == 0:
                 print(f"No noise identified in {feature}")
                 if target is not None:
