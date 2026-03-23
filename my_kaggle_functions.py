@@ -1070,7 +1070,7 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
 
     cat_features = [f for f in features if (df[f].dtype=='category' or df[f].dtype=='object' or df[f].dtype=='int')]
     other_features = [f for f in features if f not in cat_features]
-    if other_features is not None:
+    if other_features != []:
         print(f"Features not evaluated for noise. Check data_type: {other_features}")
 
     for feature in cat_features:
@@ -1105,7 +1105,7 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
                 print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}.")
             else:
                 df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
-                training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise)].shape[0]
+                training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise_label)].shape[0]
                 if  training_noise > 0:
                     df[feature] = df[feature].replace(noise_dict)
                     df[feature].fillna(noise_label, inplace=True)
@@ -1446,7 +1446,8 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
 
-def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, verbose:bool=True, debug:bool=False)->pd.DataFrame:
+def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, 
+                             verbose:bool=True, debug:bool=False)->pd.DataFrame:
     """
     decomposes a datetime feature into numeric and categorical features suitable for training
     ------
@@ -1500,7 +1501,7 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, ver
         print(f"{feature} features: {[f for f in df.columns if feature in f]}")
     return df
 
-def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, verbose:bool=True)->pd.DataFrame:
+def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, debug:bool=False)->pd.DataFrame:
     """
     decomposes a clock type feature into a sin/cos component
     use points = 7 for days of week 
@@ -1525,7 +1526,7 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, ve
     df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * X/points)
     df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * X/points)
     
-    if verbose:
+    if debug:
         _plot_circle(df, [f'{feature}_{points}_sin', f'{feature}_{points}_cos'])
 
     return df
