@@ -199,7 +199,7 @@ def load_tabular_data(
             missing_cols = set(targets + features + id_feature) - set(df_extra.columns)
             if missing_cols:
                 print(f"Extra Data missing columns: {missing_cols}")
-            extra_cols = [f for f in df_extra.columns if f not in df_columns]
+            extra_cols = [f for f in df_extra.columns if f not in df.columns]
             if extra_cols:
                 print(f"Extra Data has additional columns: {extra_cols}")
 
@@ -1227,17 +1227,12 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
         _plot_embeddings(df, cols[0], cols[1], target)
     return df
 
-class UpdatedTrainingTarget(NamedTuple):
-    df: 'pd.DataFrame'
-    targets: List[str]
-    TargetTransformer: function
-
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
-                           TargetTransformer:Optional[function]=None, 
+                           TargetTransformer=None, 
                            get_dummies: bool=False,
                            verbose: bool=True
-                           ) -> UpdatedTrainingTarget:
+                           ):
     """
     scales and/or transforms targets in df with scikit learn scalers / transformers
     defaults to StandardScaler for numeric data and label encoder for categorical data
@@ -1279,7 +1274,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
         if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
 
     targets = targets + [enc_tgt]
-    return UpdatedTrainingTarget(df, targets, TargetTransformer)
+    return df, targets, TargetTransformer
 
 def get_transformed_features(df: pd.DataFrame, features: List[str], FeatureTransformer, winsorize: tuple=[0,0]):
     """
@@ -2262,7 +2257,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             if n_cats > 2: 
                 oof_pred[val_idx, :] = y_v_pred
             elif n_cats ==2: 
-                oof_pred[val_idx] = y_v_pred[:, 1]
+                oof_pred[val_idx] = y_v_pred[:, 1].reshape(-1, 1)
             else:
                 oof_pred[val_idx] = y_v_pred.reshape(-1,1)
 
