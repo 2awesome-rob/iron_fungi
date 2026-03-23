@@ -1222,7 +1222,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
                            TargetTransformer=None, 
                            get_dummies: bool=False,
                            verbose: bool=True
-                           ) -> UpdatedTrainingTarget:
+                           ):
     """
     scales and/or transforms targets in df with scikit learn scalers / transformers
     defaults to StandardScaler for numeric data and label encoder for categorical data
