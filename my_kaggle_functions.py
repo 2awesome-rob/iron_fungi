@@ -89,8 +89,10 @@ def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
         
     c_map = dict(zip(color_keys, palette))
     #always plot noise in grey
-    c_map[-1] = 'xkcd:iron'
-    c_map['noise'] = 'xkcd:iron'
+    if type(color_keys[0])==str:
+        c_map['noise'] = 'xkcd:silver'
+    else:
+        c_map[-1] = 'xkcd:silver'
     return c_map
 
 class Globals(NamedTuple):
@@ -151,6 +153,7 @@ def _clean_feature_names(features: List[str]) -> Tuple[List[str], Dict[str, str]
                  replace("(","_").
                  replace(")","").
                  replace("-","_").
+                 replace(",","_").
                  replace(".","_") for col in features}
     return [clean_map[col] for col in features], clean_map
 
@@ -494,7 +497,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                    labels=w_lbl if i == 0 else None)
             ax.set_title(f'{feature} pct by target')
             ax.text(0, 0, inner_label, ha='center', va='center', fontsize=8, color='xkcd:steel grey')
-            ax.text(-1.3, 1.3, outer_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
+            ax.text(-1.3, 1.15, outer_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
 
     def _plot_dt_distribution(ax, feature, freq, window):
         df_td = df_plot.groupby([pd.Grouper(key=feature, freq=freq)])[target].count().rename("count_td").reset_index()
@@ -865,7 +868,6 @@ def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, sample: 
     pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
     plt.show()
 
-
 ########################################
 # Data cleaning 
 def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
@@ -915,7 +917,7 @@ def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
         print("=" * 69)
     return df
 
-def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
+def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
     """
     returns a list of features with null data in 
     """
@@ -925,8 +927,6 @@ def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List
 
     #TODO combine plots into single plot
     def _plot_null(ds, title="Percentage of missing values in training data"):
-        ds.sort_values(ascending=False, inplace = True)
-        ds = ds[ds > 0]
         ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
         plt.title(title)
         plt.xlabel('Percentage')
@@ -936,9 +936,22 @@ def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List
         cmap = _get_cmap()
         sample_size = min(df.shape[0], 1000)
         plt.figure(figsize=(8, 6))
-        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap)
+        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap, ax=axs[1])
         plt.title(title)
         plt.show()
+
+    def _plot_missing_data(df, ds):
+        fig, axs = plt.subplots(nrows=1, ncols=2)
+        #bar plot
+        ds.sort_values(ascending=False, inplace = True)
+        ds = ds[ds > 0]
+        axs[0] = ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
+        #heat map
+        cmap = _get_cmap()
+        sample_size = min(df.shape[0], 1000)
+        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap, ax=axs[1])
+        plt.show()
+
 
     if 'target_mask' in df.columns:
         mask = df.target_mask.eq(True)
@@ -1013,18 +1026,20 @@ def _get_mean_std(df, feature, target):
     df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
     return df
 
-def denoise_categoricals(df: pd.DataFrame, features: List[str], target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
+def denoise_categoricals(df: pd.DataFrame, features: List[str], 
+                         target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
     """
     identifies and consolidates noise values in categorical features
+    ---------
+    returns: df with consolidated noise in categorical features 
+    optionally adds new features of target mean and std if target is provided
+    ---------
     noise is defined as values that appear in 
        - only train data
        - only test data
        - appear infrequently (below threshold) 
             for 0.05% threshold this is 5 in 10000 or 500 in 1 million samples
             raising threshold will identify more noise values
-    ---------
-    returns: df with consolidated noise in categorical features 
-    optionally adds new features of target mean and std if target is provided
     """
     if 'target_mask' in df.columns:
         df_train = df[df.target_mask.eq(True)]
@@ -1162,7 +1177,8 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
     sample_size: Optional[float]=None, target:Optional[str]=None, encode_dim:int=8, index: int=1, verbose:bool=True) -> pd.DataFrame:
     """
     fits a mapper to a sample of the data, applys the mapping to the full dataset to create new features
-    useful for generating UMAP encoding, PCA loadings or kernal approximations of selected feature space    
+    useful for generating embeddings or kernal approximations of selected feature space
+    mapper can be "UMAP", "PCA", "PLS" or function with fit/transform methods
     -----------
     returns: df with new features added for the encoding
     """
@@ -1201,30 +1217,49 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
         _plot_embeddings(df, cols[0], cols[1], target)
     return df
 
+class UpdatedTrainingTarget(NamedTuple):
+    df: 'pd.DataFrame'
+    targets: List[str]
+    TargetTransformer: function
+
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
-                           TargetTransformer=skl.preprocessing.StandardScaler(), 
+                           TargetTransformer:Optional[function]=None, 
+                           get_dummies: bool=False,
                            verbose: bool=True
-                           ):
+                           ) -> UpdatedTrainingTarget:
     """
-    scales or transforms targets in df with scikit learn scalers / transformers
+    scales and/or transforms targets in df with scikit learn scalers / transformers
+    defaults to StandardScaler for numeric data and label encoder for categorical data
     -----------
-    returns:
+    returns tuple with:
     - df with transformed target
     - updated list of targets with new transformed target column name added
     - fitted TargetTransformer to support inverse transformation of predictions
     -----------
-    requires: 
-    pandas, scikit learn
     """
+    if TargetTransformer == None:
+        if df[target].dtype == float or df[target].dtype == int:
+            TargetTransformer=skl.preprocessing.StandardScaler()
+        else:
+            TargetTransformer=skl.preprocessing.LabelEncoder()
+
     t=target.casefold().strip().replace(" ","_").replace("(","_").replace(")","").replace("-","_").replace(".","_")
+    #initialize new features with -1
     enc_tgt = f"{t}_{name}"
     df[enc_tgt] = -1
+    #only fit and transform valid target fields
     mask = df.get("target_mask", pd.Series(True, index=df.index))
     y_fit = df.loc[mask, target].values.reshape(-1, 1)
-    y_trans = TargetTransformer.fit_transform(y_fit).ravel()
-    df.loc[mask, enc_tgt] = y_trans
-    if df[target].dtype == "O" or df[target].dtype == "category":
+    y_transformed = TargetTransformer.fit_transform(y_fit).ravel()
+    df.loc[mask, enc_tgt] = y_transformed
+
+    if verbose:
+        print(f"Added transformed target '{t}_{name}' to DataFrame")
+        plot_target_eda(df, enc_tgt, title=f"Distribution of Transformed Target: {enc_tgt}")
+
+    if (df[target].dtype == "O" or df[target].dtype == "category") and get_dummies==True:
+        # TODO: Need to test this - perhaps better to drop the "t-1" features?
         df[enc_tgt] = df[enc_tgt].astype('category')
         df_dummies = pd.get_dummies(df.loc[mask, enc_tgt], dtype=int, prefix=t)
         new_cols = df_dummies.columns.tolist()
@@ -1232,14 +1267,11 @@ def get_target_transformer(df: pd.DataFrame, target: str,
         df[new_cols].fillna(-1, inplace=True)
         targets = targets + new_cols
         if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
+
     targets = targets + [enc_tgt]
+    return UpdatedTrainingTarget(df, targets, TargetTransformer)
 
-    if verbose:
-        print(f"Added transformed target '{t}_{name}' to DataFrame")
-        plot_target_eda(df, enc_tgt, title=f"Distribution of Transformed Target '{t}_{name}'")
-    return df, targets, TargetTransformer
-
-def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransformer, winsorize: list=[0,0]):
+def get_transformed_features(df: pd.DataFrame, features: List[str], FeatureTransformer, winsorize: tuple=[0,0]):
     """
     scales or transforms features in df with scikit learn scalers / transformers
     -----------
@@ -1255,7 +1287,7 @@ def get_transformed_features(df: pd.DataFrame, features: list, FeatureTransforme
             df[feature] = FeatureTransformer.fit_transform(X)
     return df    
 
-def get_feature_interactions(df: pd.DataFrame, features:list, winsorize: list=[0,0], 
+def get_feature_interactions(df: pd.DataFrame, features:List[str], winsorize: tuple=[0,0], 
                              self_transform: bool=False,
                              transform: bool=True) -> pd.DataFrame:
     """
@@ -1862,7 +1894,7 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, task:str='regressi
     return ds
 
 def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
-                                     metric: str='classification', direction: str='maximize',
+                                     metric: str='classification', direction: str=None,
                                      n_trials: int=20, timeout: int=1200, sample_size: int=25000,
                                      CORES: int=4, DEVICE: str='cpu', verbose: bool=True)-> dict:
     '''
@@ -1881,6 +1913,11 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     '''
     SEED=69
     cat_list = [f for f in features if df[f].dtype == "category"]
+    if direction is None:
+        if metric.startswith("regression"):
+            direction='minimize'
+        else:
+            direction='maximize'
 
     def _study_objective(trial, study_model, X_train, y_train, X_val, y_val, 
                          cat_features=cat_list, metric=metric):
@@ -3107,6 +3144,11 @@ def get_pls_embeddings(df: pd.DataFrame, features:list, target:list, col_names:s
 def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6, verbose: bool=True):
     print("Function will be depricated target labels generated on data loading")
     return df, targets, target
+
+def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
+    print("To depricate -> use 'get_features_with_na'")
+    return get_features_with_na(df, features, verbose)
+
 
 """
 TODO: GLM feature analysis
