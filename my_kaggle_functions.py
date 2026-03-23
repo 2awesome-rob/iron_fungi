@@ -91,6 +91,7 @@ def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
     #always plot noise in grey
     if type(color_keys[0])==str:
         c_map['noise'] = 'xkcd:silver'
+        c_map['other'] = 'xkcd:silver'
     else:
         c_map[-1] = 'xkcd:silver'
     return c_map
@@ -590,20 +591,15 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                     _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map)
                 continue
             else:
-                # Plot top 24 categories, group the rest as 'Other'
+                # Plot top 128 categories, group the rest as 'Other'
                 value_counts = df_plot[feature].value_counts(dropna=False)
-                top_X = value_counts.nlargest(24).index.tolist()
-                df_plot[feature + '_grp'] = df_plot[feature].apply(lambda x: x if x in top_X else 'Other')
-                order_grp = top_X + ['Other'] if len(value_counts) > 24 else top_X
+                top_X = value_counts.nlargest(128).index.tolist()
+                df_plot[feature + '_grp'] = df_plot[feature].apply(lambda x: x if x in top_X else 'other')
+                order_grp = top_X + ['other'] if len(value_counts) > 128 else top_X
                 color_map = _get_colors(color_keys=order_grp, n_hues=6, n_sats=5)
                 ax0 = fig.add_subplot(gs[i, :2])
                 row_anchors.append(ax0)
                 _plot_cat_distribution(ax0, feature + '_grp', order_grp, color_map)
-                _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature + '_grp', order_grp, color_map)
-                if tgt_cat:
-                    _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature + '_grp', order_grp)
-                else:
-                    _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature + '_grp', order_grp, color_map)
                 continue
         else:
             unplotted.append(feature)
@@ -859,22 +855,29 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
             print(f"Consider scaling: {unscaled_features}")
     return        
 
-def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, sample: int=5000):
+def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, group_feature:Optional[str]=None, sample: int=800):
     """
     plots lag and autocorrelation on a downsampe of the df
-    needs a better sampling technique
     """
     print("Experimental - need to validate")
+    feature = ""
     if 'target_mask' in df.columns:
         df_plot = df[df.target_mask.eq(True)]
-        df_plot = df_plot.sample(min(len(df), sample))
+        #df_plot = df_plot.sample(min(len(df), sample))
     else:
-        df_plot = df.sample(min(len(df), sample))
+        #df_plot = df.sample(min(len(df), sample))
+        df_plot = df.copy()
+    if group_feature is not None:
+        #TODO consider sampling n vs 1 of the features and using gs to build more plots
+        feature = df[group_feature].unique().tolist()[0]
+        df_plot = df_plot[df_plot[group_feature]==feature]
 
     ds = df_plot[[time_feature, target]].set_index(time_feature)
     _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
     pd.plotting.autocorrelation_plot(ds, ax=axs[0])
-    pd.plotting.lag_plot(ds.sample(min(800, len(ds)), seed=67), lag=lag, ax=axs[1], alpha=0.5)
+    pd.plotting.lag_plot(ds.sample(min(sample, len(ds)), 
+                                   random_state=67), lag=lag, ax=axs[1], alpha=0.5)
+    plt.title(f"{feature} lag analysis")
     plt.show()
 
 ########################################
@@ -954,11 +957,23 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         #bar plot
         ds.sort_values(ascending=False, inplace = True)
         ds = ds[ds > 0]
-        axs[0] = ds[:10].plot(kind = 'barh', title = f"Top {min(10, len(ds))} of {len(ds)} Features")
+        ds[:10].plot(kind = 'barh', ax=axs[0])
+        axs[0].set_xlim(0, 100)
+        axs[0].set_title(f"Top {min(10, len(ds))} of {len(ds)} Features with N/A")
+        axs[0].set_xlabel("")
+        axs[0].set_ylabel("")
+
         #heat map
         cmap = _get_cmap()
         sample_size = min(df.shape[0], 1000)
-        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap, ax=axs[1])
+        cols = ds.index.tolist()[:10]
+        df_plot = df[cols].sample(sample_size).isnull()
+        sns.heatmap(df_plot.T, cbar=False, cmap=cmap, ax=axs[1])
+        axs[0].set_xlim(0, 100)
+        axs[1].set_title(f"Top {min(10, len(ds))} of {len(ds)} Features with N/A")
+        axs[0].set_xlabel("")
+        axs[0].set_ylabel("")
+        axs[0].set_xticks([])
         plt.show()
 
 
@@ -989,8 +1004,8 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         df_plot.round(4)
         print(df_plot)
         if verbose:
-            _plot_null(ds_train)
-            _plot_missing_heatmap(df)
+#            _plot_null(ds_train)
+#            _plot_missing_heatmap(df)
             _plot_missing_data(df, ds_train)
         return df_plot.index.tolist()
 
