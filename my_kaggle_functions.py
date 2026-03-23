@@ -199,7 +199,7 @@ def load_tabular_data(
             missing_cols = set(targets + features + id_feature) - set(df_extra.columns)
             if missing_cols:
                 print(f"Extra Data missing columns: {missing_cols}")
-            extra_cols = [f for f in df_extra.columns if f not in df_columns]
+            extra_cols = [f for f in df_extra.columns if f not in df.columns]
             if extra_cols:
                 print(f"Extra Data has additional columns: {extra_cols}")
 
