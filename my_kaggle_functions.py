@@ -338,10 +338,10 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         if not y_max: y_max = df_plot[target].max()
 
     if len(features) > 20: print("Plotting first 20 features")
-    features = features[:20]
+    plot_features = features[:20]
     #gridspec to build plot layout
-    fig = plt.figure(figsize=(10, len(features) * 3))
-    gs = mpl.gridspec.GridSpec(len(features), 3, figure=fig, hspace=0.4)
+    fig = plt.figure(figsize=(10, len(plot_features) * 3))
+    gs = mpl.gridspec.GridSpec(len(plot_features), 3, figure=fig, hspace=0.4)
 
     def _plot_num_distribution(ax, feature):
         sns.histplot(df_plot[feature], ax=ax, discrete=True)
@@ -577,9 +577,9 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                   (df_plot[feature].dtype=='int' and df_plot[feature].nunique() <= 4))
         if is_cat:
             order = sorted(df_plot[feature].dropna().unique().tolist())
-            if len(order) <= 64:
+            if len(order) <= 32:
                 df_plot[feature] = pd.Categorical(df_plot[feature], categories=order, ordered=True)
-                color_map = _get_colors(color_keys=order, n_hues=6, n_sats=5)
+                color_map = _get_colors(color_keys=order, n_hues=7, n_sats=5)
                 ax0 = fig.add_subplot(gs[i, 0])
                 row_anchors.append(ax0)
                 _plot_cat_distribution(ax0, feature, order, color_map)
@@ -590,12 +590,21 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                     _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature, order, color_map)
                 continue
             else:
-                unplotted.append(feature)
-            #TODO: alternate plot when high ordinal >64 categorical?
-            # perhaps we recall ax0 and merge across all plot column windows?
-            #else:
-            #    ax0 = fig.add_subplot(gs[i, :2])
-            #    _plot_cat_distribution(ax0, feature, order, color_map)
+                # Plot top 24 categories, group the rest as 'Other'
+                value_counts = df_plot[feature].value_counts(dropna=False)
+                top_X = value_counts.nlargest(24).index.tolist()
+                df_plot[feature + '_grp'] = df_plot[feature].apply(lambda x: x if x in top_X else 'Other')
+                order_grp = top_X + ['Other'] if len(value_counts) > 24 else top_X
+                color_map = _get_colors(color_keys=order_grp, n_hues=6, n_sats=5)
+                ax0 = fig.add_subplot(gs[i, :2])
+                row_anchors.append(ax0)
+                _plot_cat_distribution(ax0, feature + '_grp', order_grp, color_map)
+                _plot_cat_donut(fig.add_subplot(gs[i, 2]), feature + '_grp', order_grp, color_map)
+                if tgt_cat:
+                    _plot_cat_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature + '_grp', order_grp)
+                else:
+                    _plot_cat_relationship(fig.add_subplot(gs[i, 1]), feature + '_grp', order_grp, color_map)
+                continue
         else:
             unplotted.append(feature)
 
@@ -863,9 +872,9 @@ def plot_lag(df:pd.DataFrame, time_feature:str, target:str, lag: int=5, sample: 
         df_plot = df.sample(min(len(df), sample))
 
     ds = df_plot[[time_feature, target]].set_index(time_feature)
-    _, axs = plt.subplots(nrows=2, ncols=1, figsize=(5, 3))
+    _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
     pd.plotting.autocorrelation_plot(ds, ax=axs[0])
-    pd.plotting.lag_plot(ds, lag=lag, ax=axs[1])
+    pd.plotting.lag_plot(ds.sample(min(800, len(ds)), seed=67), lag=lag, ax=axs[1], alpha=0.5)
     plt.show()
 
 ########################################
@@ -936,7 +945,7 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         cmap = _get_cmap()
         sample_size = min(df.shape[0], 1000)
         plt.figure(figsize=(8, 6))
-        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap, ax=axs[1])
+        sns.heatmap(df.sample(sample_size).isnull(), cbar=False, cmap=cmap)
         plt.title(title)
         plt.show()
 
@@ -982,6 +991,7 @@ def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)
         if verbose:
             _plot_null(ds_train)
             _plot_missing_heatmap(df)
+            _plot_missing_data(df, ds_train)
         return df_plot.index.tolist()
 
 def clean_strings(df: pd.DataFrame, features: List[str], 
