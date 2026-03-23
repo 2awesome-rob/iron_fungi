@@ -1217,14 +1217,9 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
         _plot_embeddings(df, cols[0], cols[1], target)
     return df
 
-class UpdatedTrainingTarget(NamedTuple):
-    df: 'pd.DataFrame'
-    targets: List[str]
-    TargetTransformer: function
-
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
-                           TargetTransformer:Optional[function]=None, 
+                           TargetTransformer=None, 
                            get_dummies: bool=False,
                            verbose: bool=True
                            ) -> UpdatedTrainingTarget:
@@ -1269,7 +1264,7 @@ def get_target_transformer(df: pd.DataFrame, target: str,
         if verbose: print(f"Added {len(new_cols)} binary classification targets by one hot encoding")
 
     targets = targets + [enc_tgt]
-    return UpdatedTrainingTarget(df, targets, TargetTransformer)
+    return df, targets, TargetTransformer
 
 def get_transformed_features(df: pd.DataFrame, features: List[str], FeatureTransformer, winsorize: tuple=[0,0]):
     """
