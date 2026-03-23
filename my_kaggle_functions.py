@@ -242,7 +242,6 @@ def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
     """
     Print DataFrame summary and descriptive stats for selected features.
     """
-    print("=" * 69)
     if 'target_mask' in df.columns:
             df_plot = df[df.target_mask.eq(True)][features]
     else:
@@ -760,7 +759,7 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
         value = f"{p.get_height():,.0f}"
         y = p.get_height()
         if datasets == 3 and i < j:
-            x = p.get_x() + 1.2 * p.get_width()
+            x = p.get_x() + 1 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='left', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="LightGrey", boxstyle='round', linewidth=1, edgecolor='k'))
         elif (datasets == 3 and i < 2 * j) or (datasets == 2 and i < j):
@@ -768,7 +767,7 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
             axs.text(x, y, value, fontsize=9, ha='center', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="SteelBlue", boxstyle='round', linewidth=1, edgecolor='k'))
         else:
-            x = p.get_x() + 0.5 * p.get_width()
+            x = p.get_x() + 0.55 * p.get_width()
             axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor='GoldenRod', boxstyle='round', linewidth=1, edgecolor='k'))
     plt.xticks(rotation=45, fontsize=10)
@@ -777,6 +776,304 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
     plt.suptitle(t = t, fontsize = 10, x = 0.9, ha ='right') 
     sns.despine()
     plt.show()
+
+def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group_feature: Optional[str]=None, sample: int=800):
+    """
+    plots lag and autocorrelation on a downsampe of the df
+    """
+    print("Experimental - need to validate")
+    feature = ""
+    if 'target_mask' in df.columns:
+        df_plot = df[df.target_mask.eq(True)]
+        #df_plot = df_plot.sample(min(len(df), sample))
+    else:
+        #df_plot = df.sample(min(len(df), sample))
+        df_plot = df.copy()
+    if group_feature is not None:
+        #TODO consider sampling n vs 1 of the features and using gs to build more plots
+        feature = df[group_feature].unique().tolist()[0]
+        df_plot = df_plot[df_plot[group_feature]==feature]
+
+    ds = df_plot[[time_feature, target]].set_index(time_feature)
+    _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
+    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
+    pd.plotting.lag_plot(ds.sample(min(sample, len(ds)), 
+                                   random_state=67), lag=lag, ax=axs[1], alpha=0.5)
+    plt.title(f"{feature} lag analysis")
+    plt.show()
+
+########################################
+# Data cleaning 
+def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
+                      drop: bool=False, verbose: bool=True) -> pd.DataFrame:
+    """
+    Checks for duplicate rows of selected features in df.
+    Returns:
+    - DataFrame with duplicate rows dropped from training data if drop=True.
+    """
+    if 'target_mask' in df.columns:
+        mask = df.target_mask.eq(True)
+        train_df = df[mask]
+        test_df = df[~mask]
+    else:
+        print("Unable to separate test and training data")
+        print(f"{df[features].duplicated(keep=False).sum()} duplicates in DataFrame")
+        return df
+
+    # Find duplicates in training data
+    duplicate_mask = train_df[features].duplicated(keep=False)
+    n_duplicates = duplicate_mask.sum()
+
+    # Find overlap between train and test
+    overlap = pd.merge(train_df[features], test_df[features], how='inner')
+
+    print("=" * 69)
+    print(f"There are {n_duplicates} duplicated rows in the training data set.")
+    print(f"There are {overlap.shape[0]} overlapping observations that appear in both the train and test data sets")
+    print("=" * 69)
+
+    if verbose and n_duplicates > 0:
+        print(train_df[duplicate_mask][features].head(10).T)
+        print("=" * 69)
+        plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
+        print("=" * 69)
+        #TODO: consider more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
+        #TODO: show examples of duplicated rows, highlight differences in target values for duplicated rows, and visualize feature distributions for duplicated vs non-duplicated rows to look for patterns that could explain the duplicates or target differences
+    if drop and n_duplicates > 0:
+        print("Dropping duplicated rows from training data set...")
+        df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="first")
+        df = df.dropna(subset=features)
+        train_df = df[mask] #reset train_df after dropping rows 
+        duplicate_mask = train_df[features].duplicated(keep=False)
+        overlap = pd.merge(train_df[features], test_df[features], how='inner')
+        print(f"{duplicate_mask.sum()} duplicated rows remain in training data set.")
+        print(f"{overlap.shape[0]} overlapping observations remain in the train and test data sets")
+        print("=" * 69)
+    return df
+
+def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
+    """
+    returns a list of features with null data in the training and/or test data
+    optional visualization of up to 10 features with missing data
+    """
+    def _calculate_null(df):
+        ds = (df[features].isnull().sum() / len(df)) * 100
+        return ds
+
+    def _plot_missing_data(df, ds):
+        fig, axs = plt.subplots(nrows=1, ncols=2)
+        #bar plot
+        ds.sort_values(ascending=False, inplace = True)
+        ds = ds[ds > 0]
+        ds[:10].plot(kind = 'barh', ax=axs[0])
+        axs[0].set_xlim(0, 100)
+        axs[0].set_title(f"Top {min(10, len(ds))} of {len(ds)} Training Features with N/A")
+        axs[0].set_xlabel("")
+        axs[0].set_ylabel("")
+        #heat map
+        cmap = _get_cmap()
+        sample_size = min(df.shape[0], 1000)
+        cols = ds.index.tolist()[:10]
+        cols.reverse()
+        df_plot = df[cols].sample(sample_size).isnull()
+        sns.heatmap(df_plot.T, cbar=False, cmap=cmap, ax=axs[1])
+        axs[1].set_xlabel("")
+        axs[1].set_ylabel("")
+        axs[1].set_xticks([])
+        axs[1].set_yticks([])
+        plt.show()
+
+    if 'target_mask' in df.columns:
+        mask = df.target_mask.eq(True)
+        ds_train = _calculate_null(df[df.target_mask.eq(True)])
+        ds_test = _calculate_null(df[df.target_mask.eq(False)])
+    else:
+        print("Unable to separate test and training data")
+        ds = _calculate_null(df)
+        ds = ds[ds > 0]
+        print("Features with missing data:")
+        print(ds)
+        return ds.index.tolist()
+
+    if (ds_train == 0).all() and (ds_test == 0).all():
+        print("=" * 69)
+        print("No Missing Data")
+        print("=" * 69)
+        return []
+    else:
+        print("=" * 69)
+        print("                    Percent Null")
+        print("=" * 69)
+        df_plot = ds_train.to_frame(name = 'training data')
+        df_plot['test data']  = ds_test
+        df_plot = df_plot.loc[~(df_plot == 0).all(axis=1)]
+        df_plot.round(4)
+        print(df_plot)
+        if verbose:
+            _plot_missing_data(df[mask], ds_train)
+        return df_plot.index.tolist()
+
+def clean_strings(df: pd.DataFrame, features: List[str], 
+                       string_length: int=5, fillna:bool=True) -> pd.DataFrame:
+    """
+    edits strings in feature columns to be more consistent and easier to work with
+    -----------
+    updated df with cleaned strings assigned as categorical features
+    """
+    for col in df[features].select_dtypes(include=['object', 'string']).columns:
+        if fillna: 
+            df[col].fillna('unk', inplace=True) 
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.strip()
+            .str.casefold()
+            .str.replace("-", "_", regex=False)
+            .str.replace(". ", "_", regex=False)
+            .str.replace(", ", "_", regex=False)
+            .str.replace(" ", "_", regex=False)
+            .str.replace("(", "", regex=False)
+            .str.replace(")", "", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", "", regex=False)
+        )
+        df[col] = df[col].str[:string_length].astype('category')
+    return df
+
+def _get_mean_std(df, feature, target):
+    if "target_mask" in df.columns:
+        df_group = df[df.target_mask.eq(True)]
+    else: 
+        df_group = df.copy()
+    
+    std = df_group[target].std()
+    group_stats = df_group.groupby(feature)[target].agg(['mean', 'std']).rename(
+            columns={
+                'mean': f'{target}_by_{feature}_mu',
+                'std': f'{target}_by_{feature}_std'}) 
+    df = df.merge(group_stats, on=feature, how='left')
+    df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
+    return df
+
+def denoise_categoricals(df: pd.DataFrame, features: List[str], 
+                         target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
+    """
+    identifies and consolidates noise values in categorical features
+    ---------
+    returns: df with consolidated noise in categorical features 
+    optionally adds new features of target mean and std if target is provided
+    ---------
+    noise is defined as values that appear in 
+       - only train data
+       - only test data
+       - appear infrequently (below threshold) 
+            for 0.05% threshold this is 5 in 10000 or 500 in 1 million samples
+            raising threshold will identify more noise values
+    """
+    if 'target_mask' in df.columns:
+        df_train = df[df.target_mask.eq(True)]
+        df_test = df[df.target_mask.eq(False)]
+    else:
+        print("Unable to separate test and training data")
+        return df
+
+    # assume threshold is given in percent
+    # this is the minimum number of values required to be considered signal vs noise
+    noise_ceil_train = int(0.01 * threshold * df_train.shape[0])
+    noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
+
+    cat_features = [f for f in features if (df[f].dtype=='category' or df[f].dtype=='object' or df[f].dtype=='int')]
+    other_features = [f for f in features if f not in cat_features]
+    if other_features != []:
+        print(f"Features not evaluated for noise. Check data_type: {other_features}")
+
+    for feature in cat_features:
+        df[feature] = df[feature].astype('category')
+        noise_label = -1 if (df[feature].cat.categories.dtype == 'int' or 
+                             df[feature].cat.categories.dtype == 'float') else "noise"
+        train_v = list(df_train[feature].unique())
+        values = list(df[feature].dropna().unique())
+        if len(train_v) < 2:
+            print(f"{feature} is trivial, dropping {feature}")
+            df.drop(columns=[feature], inplace=True)
+        else:
+            # Identify noise
+            noise_dict = {}
+            for v in values:
+                if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
+                    df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
+                    noise_dict[v] = noise_label
+            if len(noise_dict.keys()) == 0:
+                print(f"No noise identified in {feature}")
+                if target is not None:
+                    df = _get_mean_std(df, feature, target)
+            elif len(noise_dict.keys()) == 1:
+                print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}.")
+            else:
+                df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
+                training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise_label)].shape[0]
+                if  training_noise > 0:
+                    df[feature] = df[feature].replace(noise_dict)
+                    df[feature].fillna(noise_label, inplace=True)
+                    print(f"""✔️ successfully de-noised {feature} \n
+                              - {100*training_noise/df_train.shape[0]:.2f}% noise in training data.\n
+                              - {df[feature].nunique()} unique values remain""")
+                    if target is not None:
+                        df = _get_mean_std(df, feature, target)
+                else:
+                    print(f"""❌ Unable to denoise {feature}.\n
+                              - {training_noise} training noise samples with noise in test data\n
+                              - noise values in test data: {list(noise_dict.keys())}
+                          """)
+    return df 
+
+def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
+                 remove: bool=False, verbose: bool=False) -> pd.DataFrame:
+    """
+    identifies outliers in a specified feature of a DataFrame
+    -----------
+    returns: DataFrame with outlier rows optionally removed, and DataFrame of outliers
+    -----------
+    requires: pandas, numpy
+    """
+    df_train = df[df.target_mask.eq(True)]
+    m = df_train[feature].mean()
+    s = df_train[feature].std()
+    pop = df_train.shape[0]
+    print("=" * 69)
+    print(f"{pop} samples with mean: {m:.4f} std: {s:.4f}")
+    for i in range(1, deviations+1):
+        df_outlier = df_train[(df_train[feature] > i*(m+s)) | (df_train[feature] < i*(m-s))]
+        print(f"  - {pop - df_outlier.shape[0]} ({100*(1-df_outlier.shape[0]/pop):.2f}%) samples within {i} standard deviation ")
+    print("=" * 69)
+    print(f"{df_outlier.shape[0]} outliers identified beyond {deviations} standard deviations")
+    if verbose:
+        print(df_outlier.head().T)
+    if remove:
+        df = df.drop(df_outlier.index)
+        print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
+    return df, df_outlier
+
+def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5, drop: bool=False, name:str="")-> pd.DataFrame:
+    """
+    Uses skl.neighbors model to identify outliers across given features
+    returns df with new feature identifying outliers
+    """
+    outliermodel = skl.neighbors.LocalOutlierFactor(n_neighbors=n_neighbors)
+    df[f'outlier_{name}'] = outliermodel.fit_predict(df[features])
+    df[f'outlier_{name}'] = df[f'outlier_{name}'].astype('category')
+    outlier_count = df.query(f'outlier_{name} == -1').shape[0]
+    print("=" * 69)
+    print(f"\n{outlier_count} ({100 * outlier_count / df.shape[0] :.2f}%) of samples identified as outliers")
+    if outlier_count == 0:
+        df.drop(f'outlier_{name}', inplace=True, axis=1)
+    if drop is True:
+        #TODO fix to only drop outliers from training data - can't drop test data!!!
+        outlier_mask = df[df[f'outlier_{name}'] == -1]
+        df.drop(outlier_mask.index, inplace=True)
+        df.drop(f'outlier_{name}', inplace=True, axis=1)
+        print(f"Removed {outlier_mask.shape[0]} outliers from original DataFrame.")
+    return df
 
 def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, verbose: bool=True)-> None:
     """
@@ -859,313 +1156,6 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
         if unscaled_features:
             print(f"Consider scaling: {unscaled_features}")
     return        
-
-def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group_feature: Optional[str]=None, sample: int=800):
-    """
-    plots lag and autocorrelation on a downsampe of the df
-    """
-    print("Experimental - need to validate")
-    feature = ""
-    if 'target_mask' in df.columns:
-        df_plot = df[df.target_mask.eq(True)]
-        #df_plot = df_plot.sample(min(len(df), sample))
-    else:
-        #df_plot = df.sample(min(len(df), sample))
-        df_plot = df.copy()
-    if group_feature is not None:
-        #TODO consider sampling n vs 1 of the features and using gs to build more plots
-        feature = df[group_feature].unique().tolist()[0]
-        df_plot = df_plot[df_plot[group_feature]==feature]
-
-    ds = df_plot[[time_feature, target]].set_index(time_feature)
-    _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
-    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
-    pd.plotting.lag_plot(ds.sample(min(sample, len(ds)), 
-                                   random_state=67), lag=lag, ax=axs[1], alpha=0.5)
-    plt.title(f"{feature} lag analysis")
-    plt.show()
-
-########################################
-# Data cleaning 
-def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
-                      drop: bool=False, verbose: bool=True) -> pd.DataFrame:
-    """
-    Checks for duplicate rows of selected features in df.
-    Returns:
-    - DataFrame with duplicate rows dropped from training data if drop=True.
-    """
-    if 'target_mask' in df.columns:
-        mask = df.target_mask.eq(True)
-        train_df = df[mask]
-        test_df = df[~mask]
-    else:
-        print("Unable to separate test and training data")
-        print(f"{df[features].duplicated(keep=False).sum()} duplicates in DataFrame")
-        return df
-
-    # Find duplicates in training data
-    duplicate_mask = train_df[features].duplicated(keep=False)
-    n_duplicates = duplicate_mask.sum()
-
-    # Find overlap between train and test
-    overlap = pd.merge(train_df[features], test_df[features], how='inner')
-
-    print("=" * 69)
-    print(f"There are {n_duplicates} duplicated rows in the training data set.")
-    print(f"There are {overlap.shape[0]} overlapping observations that appear in both the train and test data sets")
-    print("=" * 69)
-
-    if verbose and n_duplicates > 0:
-        print(train_df[duplicate_mask][features].head(10).T)
-        print("=" * 69)
-        plot_target_eda(train_df[duplicate_mask], target, title="target distribution by duplicated rows")
-        print("=" * 69)
-        #TODO: consider more visualizations comparing duplicated rows to non-duplicated rows in training data and to test data
-        #TODO: show examples of duplicated rows, highlight differences in target values for duplicated rows, and visualize feature distributions for duplicated vs non-duplicated rows to look for patterns that could explain the duplicates or target differences
-    if drop and n_duplicates > 0:
-        print("Dropping duplicated rows from training data set...")
-        df.loc[mask, :] = train_df.drop_duplicates(subset=features, keep="first")
-        df = df.dropna(subset=features)
-        train_df = df[mask] #reset train_df after dropping rows 
-        duplicate_mask = train_df[features].duplicated(keep=False)
-        overlap = pd.merge(train_df[features], test_df[features], how='inner')
-        print(f"{duplicate_mask.sum()} duplicated rows remain in training data set.")
-        print(f"{overlap.shape[0]} overlapping observations remain in the train and test data sets")
-        print("=" * 69)
-    return df
-
-def get_features_with_na(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
-    """
-    returns a list of features with null data in 
-    """
-    def _calculate_null(df):
-        ds = (df[features].isnull().sum() / len(df)) * 100
-        return ds
-
-    def _plot_missing_data(df, ds):
-        fig, axs = plt.subplots(nrows=1, ncols=2)
-        #bar plot
-        ds.sort_values(ascending=False, inplace = True)
-        ds = ds[ds > 0]
-        ds[:10].plot(kind = 'barh', ax=axs[0])
-        axs[0].set_xlim(0, 100)
-        axs[0].set_title(f"Top {min(10, len(ds))} of {len(ds)} Features with N/A")
-        axs[0].set_xlabel("")
-        axs[0].set_ylabel("")
-
-        #heat map
-        cmap = _get_cmap()
-        sample_size = min(df.shape[0], 1000)
-        cols = ds.index.tolist()[:10]
-        cols.reverse()
-        df_plot = df[cols].sample(sample_size).isnull()
-        sns.heatmap(df_plot.T, cbar=False, cmap=cmap, ax=axs[1])
-        axs[1].set_title(f"Top {min(10, len(ds))} of {len(ds)} Features with N/A")
-        axs[1].set_xlabel("")
-        axs[1].set_ylabel("")
-        axs[1].set_xticks([])
-#        axs[1].set_yticks([])
-        plt.show()
-
-    if 'target_mask' in df.columns:
-        mask = df.target_mask.eq(True)
-        ds_train = _calculate_null(df[df.target_mask.eq(True)])
-        ds_test = _calculate_null(df[df.target_mask.eq(False)])
-    else:
-        print("Unable to separate test and training data")
-        ds = _calculate_null(df)
-        ds = ds[ds > 0]
-        print("Features with missing data:")
-        print(ds)
-        return ds.index.tolist()
-
-    if (ds_train == 0).all() and (ds_test == 0).all():
-        print("=" * 69)
-        print("No Missing Data")
-        print("=" * 69)
-        return []
-    else:
-        print("=" * 69)
-        print("                    Percent Null")
-        print("=" * 69)
-        df_plot = ds_train.to_frame(name = 'training data')
-        df_plot['test data']  = ds_test
-        df_plot = df_plot.loc[~(df_plot == 0).all(axis=1)]
-        df_plot.round(4)
-        print(df_plot)
-        if verbose:
-#            _plot_null(ds_train)
-#            _plot_missing_heatmap(df)
-            _plot_missing_data(df, ds_train)
-        return df_plot.index.tolist()
-
-def clean_strings(df: pd.DataFrame, features: List[str], 
-                       string_length: int=5, fillna:bool=True) -> pd.DataFrame:
-    """
-    edits strings in feature columns to be more consistent and easier to work with
-    -----------
-    updated df with cleaned strings assigned as categorical features
-    """
-    for col in df[features].select_dtypes(include=['object', 'string']).columns:
-        if fillna: 
-            df[col].fillna('unk', inplace=True) 
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.strip()
-            .str.casefold()
-            .str.replace("-", "_", regex=False)
-            .str.replace(". ", "_", regex=False)
-            .str.replace(", ", "_", regex=False)
-            .str.replace(" ", "_", regex=False)
-            .str.replace("(", "", regex=False)
-            .str.replace(")", "", regex=False)
-            .str.replace(".", "", regex=False)
-            .str.replace(",", "", regex=False)
-        )
-        df[col] = df[col].str[:string_length].astype('category')
-    return df
-
-def _get_mean_std(df, feature, target):
-    if "target_mask" in df.columns:
-        df_group = df[df.target_mask.eq(True)]
-    else: 
-        df_group = df.copy()
-    
-    std = df_group[target].std()
-    group_stats = df_group.groupby(feature)[target].agg(['mean', 'std']).rename(
-            columns={
-                'mean': f'{target}_by_{feature}_mu',
-                'std': f'{target}_by_{feature}_std'}) 
-    df = df.merge(group_stats, on=feature, how='left')
-    df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
-    return df
-
-def denoise_categoricals(df: pd.DataFrame, features: List[str], 
-                         target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
-    """
-    identifies and consolidates noise values in categorical features
-    ---------
-    returns: df with consolidated noise in categorical features 
-    optionally adds new features of target mean and std if target is provided
-    ---------
-    noise is defined as values that appear in 
-       - only train data
-       - only test data
-       - appear infrequently (below threshold) 
-            for 0.05% threshold this is 5 in 10000 or 500 in 1 million samples
-            raising threshold will identify more noise values
-    """
-    if 'target_mask' in df.columns:
-        df_train = df[df.target_mask.eq(True)]
-        df_test = df[df.target_mask.eq(False)]
-    else:
-        print("Unable to separate test and training data")
-        return df
-
-    # assume threshold is given in percent
-    # this is the minimum number of values required to be considered signal vs noise
-    noise_ceil_train = int(0.01 * threshold * df_train.shape[0])
-    noise_ceil_test = int(0.01 * threshold * df_test.shape[0])
-
-    cat_features = [f for f in features if (df[f].dtype=='category' or df[f].dtype=='object' or df[f].dtype=='int')]
-    other_features = [f for f in features if f not in cat_features]
-    if other_features != []:
-        print(f"Features not evaluated for noise. Check data_type: {other_features}")
-
-    for feature in cat_features:
-        df[feature] = df[feature].astype('category')
-        noise_label = -1 if (df[feature].cat.categories.dtype == 'int' or 
-                             df[feature].cat.categories.dtype == 'float') else "noise"
-        train_v = list(df_train[feature].unique())
-#        test_v = list(df_test[feature].unique())
-#        train_noise = [f for f in train_v if f not in test_v]
-#        test_noise = [f for f in test_v if f not in train_v]
-#        values = train_v + test_noise
-        values = list(df[feature].dropna().unique())
-        if len(train_v) < 2:
-            print(f"{feature} is trivial, dropping {feature}")
-            df.drop(columns=[feature], inplace=True)
-        else:
-            # Identify noise
-            noise_dict = {}
-            # noise includes all values that uniquely appear in train or test data
-#            for v in test_noise + train_noise:
-#                noise_dict[v] = noise
-            # noise includes all values that appear infrequently in train or test data
-            for v in values:
-                if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
-                    df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
-                    noise_dict[v] = noise_label
-            if len(noise_dict.keys()) == 0:
-                print(f"No noise identified in {feature}")
-                if target is not None:
-                    df = _get_mean_std(df, feature, target)
-            elif len(noise_dict.keys()) == 1:
-                print(f"❌ Unable to denoise {feature}. Only one noise value: {noise_dict.keys()}.")
-            else:
-                df_train[f"{feature}_denoise"] = df_train[feature].replace(noise_dict)
-                training_noise = df_train[df_train[f"{feature}_denoise"].eq(noise_label)].shape[0]
-                if  training_noise > 0:
-                    df[feature] = df[feature].replace(noise_dict)
-                    df[feature].fillna(noise_label, inplace=True)
-                    print(f"✔️ successfully de-noised {feature}: {100*training_noise/df_train.shape[0]:.2f}% noise in training data")
-                    if target is not None:
-                        df = _get_mean_std(df, feature, target)
-                else:
-                    print(f"""❌ Unable to denoise {feature}.\n
-                              training noise: {training_noise} samples with noise in test data\n
-                              noise values in test data: {list(noise_dict.keys())}
-                          """)
-    return df 
-
-def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
-                 remove: bool=False, verbose: bool=False) -> pd.DataFrame:
-    """
-    identifies outliers in a specified feature of a DataFrame
-    -----------
-    returns: DataFrame with outlier rows optionally removed, and DataFrame of outliers
-    -----------
-    requires: pandas, numpy
-    """
-    df_train = df[df.target_mask.eq(True)]
-    m = df_train[feature].mean()
-    s = df_train[feature].std()
-    pop = df_train.shape[0]
-    print("=" * 69)
-    print(f"{pop} samples with mean: {m:.4f} std: {s:.4f}")
-    for i in range(1, deviations+1):
-        df_outlier = df_train[(df_train[feature] > i*(m+s)) | (df_train[feature] < i*(m-s))]
-        print(f"  - {pop - df_outlier.shape[0]} ({100*(1-df_outlier.shape[0]/pop):.2f}%) samples within {i} standard deviation ")
-    print("=" * 69)
-    print(f"{df_outlier.shape[0]} outliers identified beyond {deviations} standard deviations")
-    if verbose:
-        print(df_outlier.head().T)
-    if remove:
-        df = df.drop(df_outlier.index)
-        print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
-    return df, df_outlier
-
-def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5, drop: bool=False, name:str="")-> pd.DataFrame:
-    """
-    Uses skl.neighbors model to identify outliers across given features
-    returns df with new feature identifying outliers
-    """
-    outliermodel = skl.neighbors.LocalOutlierFactor(n_neighbors=n_neighbors)
-    df[f'outlier_{name}'] = outliermodel.fit_predict(df[features])
-    df[f'outlier_{name}'] = df[f'outlier_{name}'].astype('category')
-    outlier_count = df.query(f'outlier_{name} == -1').shape[0]
-    print("=" * 69)
-    print(f"\n{outlier_count} ({100 * outlier_count / df.shape[0] :.2f}%) of samples identified as outliers")
-    if outlier_count == 0:
-        df.drop(f'outlier_{name}', inplace=True, axis=1)
-    if drop is True:
-        #TODO fix to only drop outliers from training data - can't drop test data!!!
-        outlier_mask = df[df[f'outlier_{name}'] == -1]
-        df.drop(outlier_mask.index, inplace=True)
-        df.drop(f'outlier_{name}', inplace=True, axis=1)
-        print(f"Removed {outlier_mask.shape[0]} outliers from original DataFrame.")
-    return df
 
 ########################################
 # Feature Engineering
@@ -1329,16 +1319,16 @@ def get_feature_interactions(df: pd.DataFrame, features:List[str], winsorize: tu
     print(f"Added {len(new_features)} inteaction features")
     return df
 
-def get_feature_by_grouping_on_cat(df: pd.DataFrame, features: list, target: str) -> pd.DataFrame:
+def get_mean_by_cat_value(df: pd.DataFrame, cat_features: list, target: str) -> pd.DataFrame:
     """
     Computes mean and std of a numeric target feature grouped by each category,
-    using only rows where df.target_mask == True, and merges the results back.
+    mean/std computed with df.target_mask == True
     """
-    for feature in features: 
+    for feature in cat_features: 
         _get_mean_std(df, feature, target)
     return df
 
-def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
+def get_cat_on_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
     """
     returns each combination of category values as a new category
     --------
@@ -1403,7 +1393,6 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
         df = pd.concat([df, df_hint], axis=1)
 
     return df
-
 
 def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, verbose:bool=True) -> pd.DataFrame:
     """
@@ -3159,6 +3148,14 @@ def get_target_labels(df: pd.DataFrame, target: str, targets: list, cuts: int=6,
 def plot_null_data(df:pd.DataFrame, features:List[str], verbose:bool=True)->List[str]:
     print("To depricate -> use 'get_features_with_na'")
     return get_features_with_na(df, features, verbose)
+
+def get_feature_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
+    print("To be depricated -> use 'get_cat_on_cat_interactions' ")
+    return get_cat_on_cat_interactions(df, features, pivot)
+
+def get_feature_by_grouping_on_cat(df, features, target):
+    print("To be depricated -> use 'get_mean_by_cat_value'")
+    return get_mean_by_cat_value(df, features, target)
 
 
 """
