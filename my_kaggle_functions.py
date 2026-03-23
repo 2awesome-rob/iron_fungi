@@ -594,7 +594,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                 # Plot top 128 categories, group the rest as 'Other'
                 value_counts = df_plot[feature].value_counts(dropna=False)
                 top_X = value_counts.nlargest(128).index.tolist()
-                df_plot[feature + '_grp'] = df_plot[feature].apply(lambda x: x if x in top_X else 'other')
+                df_plot[feature + "_grp"] = df_plot[feature].where(df_plot[feature].isin(top_X), "other")
                 order_grp = top_X + ['other'] if len(value_counts) > 128 else top_X
                 color_map = _get_colors(color_keys=order_grp, n_hues=6, n_sats=5)
                 ax0 = fig.add_subplot(gs[i, :2])
