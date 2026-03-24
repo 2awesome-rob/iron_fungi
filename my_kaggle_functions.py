@@ -53,17 +53,20 @@ from typing import NamedTuple
 
 ########################################
 # Initialization and data loading functions
-def _get_cmap(default:bool=True):
+def _get_cmap(type:int=0):
     """helper function to maintain color consistency"""
-    if default: return 'cividis'
-    else: return 'viridis'
+    if type==0: return 'cividis'         #Uniform
+    elif type==1: return 'bone_r'        #Sequential
+    elif type==2: return 'BrBG' #'PuOr'  #Diverging
 
 def _get_colors(color_keys: List[str] = None, n_hues: int = 5, n_sats: int = 5
                 ) -> Union[List, Dict]:
     """
     Generate color palettes for consistent visualizations.
-    If color_keys is None, returns a palette (list of colors).
-    If color_keys is provided, returns a dict mapping keys to colors.
+    If color_keys is None,
+     - returns a palette (list of colors).
+    If color_keys is provided, 
+    - returns a dict mapping keys to colors.
     """
     my_palette = sns.xkcd_palette([
         'ocean blue', 'gold', 'dull green', 'dusty rose', 'dark lavender',
@@ -238,6 +241,8 @@ def load_tabular_data(
     df.set_index(id_feature, inplace=True)
     return TabularData(df, features, targets, target)
 
+########################################
+# EDA functions
 def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
     """
     Print DataFrame summary and descriptive stats for selected features.
@@ -260,6 +265,7 @@ def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
     if len(numeric_cols) > 0:
         print("=" * 69)
         print(df_plot[numeric_cols].describe().T)
+        print("")
    
     if len(non_numeric_cols) > 0:
         print("=" * 69)
@@ -267,8 +273,6 @@ def summarize_data(df: pd.DataFrame, features: List[str]) -> None:
 
     return
 
-########################################
-# EDA functions
 def plot_target_eda(df: pd.DataFrame, target: str,
                      title: str = 'Target Distribution') -> None:
     """
@@ -680,7 +684,10 @@ def print_pca_loadings(df: pd.DataFrame, features: List[str], filter_small: bool
     plot_features = [f for f in features if
                      (df[f].dtype == 'float' or df[f].dtype == 'int')]
 
-    X = df[df.target_mask.eq(True)][plot_features[:10]]
+    if 'target_mask' in df:
+        X = df[df.target_mask.eq(True)][plot_features[:10]]
+    else:
+        X = df[plot_features[:10]]
     X = (X - X.mean()) / X.std()  # standardize features before PCA
     pca = skl.decomposition.PCA()
     X_pca = pca.fit_transform(X)
@@ -759,16 +766,16 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
         value = f"{p.get_height():,.0f}"
         y = p.get_height()
         if datasets == 3 and i < j:
-            x = p.get_x() + 1 * p.get_width()
-            axs.text(x, y, value, fontsize=9, ha='left', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
+            x = p.get_x() + 0.99 * p.get_width()
+            axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="LightGrey", boxstyle='round', linewidth=1, edgecolor='k'))
         elif (datasets == 3 and i < 2 * j) or (datasets == 2 and i < j):
             x = p.get_x() 
-            axs.text(x, y, value, fontsize=9, ha='center', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
+            axs.text(x, y, value, fontsize=9, ha='left', va='center', color = 'w',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor="SteelBlue", boxstyle='round', linewidth=1, edgecolor='k'))
         else:
-            x = p.get_x() + 0.55 * p.get_width()
-            axs.text(x, y, value, fontsize=9, ha='right', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
+            x = p.get_x() + 0.5 * p.get_width()
+            axs.text(x, y, value, fontsize=9, ha='center', va='center',                 #y position shifted to minimize overlap and enable reading numbers behind
                     bbox=dict(facecolor='GoldenRod', boxstyle='round', linewidth=1, edgecolor='k'))
     plt.xticks(rotation=45, fontsize=10)
     plt.yticks(())
@@ -808,8 +815,7 @@ def check_duplicates(df: pd.DataFrame, features: List[str], target: str,
                       drop: bool=False, verbose: bool=True) -> pd.DataFrame:
     """
     Checks for duplicate rows of selected features in df.
-    Returns:
-    - DataFrame with duplicate rows dropped from training data if drop=True.
+    Returns DataFrame with duplicate rows dropped from training data if drop=True.
     """
     if 'target_mask' in df.columns:
         mask = df.target_mask.eq(True)
@@ -955,6 +961,71 @@ def _get_mean_std(df, feature, target):
     df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
     return df
 
+def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, verbose: bool=True)-> None:
+    """
+    checks that categorical features have consistent unique values and 
+    similar distributions between training and testing data
+    -----------
+    for each feature, checks that unique values in training and testing data are the same
+    prints any unique values that appear in one set but not the other as potential noise
+    checks that the percentage of each unique value in training and testing is within pct_diff threshold 
+    prints any that exceed the threshold as potential consistency issues
+    -----------
+    requires: pandas
+    """
+    if 'target_mask' in df.columns:
+        df_train = df[df.target_mask.eq(True)]
+        df_test = df[df.target_mask.eq(False)]
+    else:
+        print("Unable to Separate training and test data")
+        return
+    
+    def _print_consistency(feature, feature_values):
+        dict_index = {}
+        for v in feature_values:
+            try:
+                train_pct = 100*df_train.groupby(feature)[feature].count()[v] / df_train.shape[0]
+            except:
+                train_pct = 0
+            try:
+                test_pct = 100*df_test.groupby(feature)[feature].count()[v] / df_test.shape[0]
+            except:
+                test_pct = 0
+            delta = abs(train_pct - test_pct)
+            dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
+        df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
+        if df_plot[df_plot.Difference.ge(pct_diff)].shape[0] == 0:
+            print(f"✔️ {feature} passed {pct_diff}% consistentcy check")
+        else:
+            print(f"❌ {feature} failed {pct_diff}% consistentcy check")
+            print(df_plot[df_plot.Difference.ge(pct_diff)])
+        print(f" - {feature} has {df_train[feature].nunique()} unique values in training data")
+        print(f" - {feature} is {df[feature].cat.categories.dtype} data type")
+   
+    for feature in features:
+        train_v = df_train[feature].unique()
+        test_v = df_test[feature].unique()
+        train_only = [f for f in train_v if f not in test_v]
+        test_only = [f for f in test_v if f not in train_v]
+        if train_only == [] and test_only == []:
+            if len(train_v) >= 2:
+                _print_consistency(feature, train_v)
+            else:
+                print(f"{feature} is trivial, recommend dropping {feature}")
+        else:
+            print(f"❌ unique feature check FAILED for {feature}")
+            if test_only != []:
+                print(f"*** Warning {feature} has test values that do not appear in training data! ***")
+                print(f"{feature} values: {test_only} appear in testing, but not training data")
+            if train_only != []:
+                print(f"{feature} values: {train_only} appear in training, but not test data")
+            all_v = list(set(train_v) | set(test_v))
+            _print_consistency(feature, all_v)
+
+    if verbose:
+        plot_countplots(df, features)
+    return
+
 def denoise_categoricals(df: pd.DataFrame, features: List[str], 
                          target: Optional[str]=None, threshold:float=0.05)-> pd.DataFrame:
     """
@@ -967,7 +1038,7 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
        - only train data
        - only test data
        - appear infrequently (below threshold) 
-            for 0.05% threshold this is 5 in 10000 or 500 in 1 million samples
+            for 0.05% default threshold this is 5 in 10000 or 500 in 1 million samples
             raising threshold will identify more noise values
     """
     if 'target_mask' in df.columns:
@@ -1027,34 +1098,34 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
                           """)
     return df 
 
-def get_outliers(df: pd.DataFrame, feature: str, deviations: int=4, 
-                 remove: bool=False, verbose: bool=False) -> pd.DataFrame:
+def get_outliers(df: pd.DataFrame, target: str, deviations: int=5, verbose: bool=True) -> pd.DataFrame:
     """
     identifies outliers in a specified feature of a DataFrame
     -----------
-    returns: DataFrame with outlier rows optionally removed, and DataFrame of outliers
-    -----------
-    requires: pandas, numpy
+    returns: DataFrame of outliers in test data with values more than n deviations from mean
+
     """
-    df_train = df[df.target_mask.eq(True)]
-    m = df_train[feature].mean()
-    s = df_train[feature].std()
-    pop = df_train.shape[0]
+    if 'target_mask' in df.columns:
+        mask = df.target_mask.eq(True)
+        df_train = df[mask]
+    else: 
+        print("Unable to separate training data; looking at all data")
+        return df, pd.DataFrame
+    m = df_train[target].mean()
+    s = df_train[target].std()
+    population = df_train.shape[0]
     print("=" * 69)
-    print(f"{pop} samples with mean: {m:.4f} std: {s:.4f}")
+    print(f"{population} samples with mean: {m:.4f} std: {s:.4f}")
     for i in range(1, deviations+1):
-        df_outlier = df_train[(df_train[feature] > i*(m+s)) | (df_train[feature] < i*(m-s))]
-        print(f"  - {pop - df_outlier.shape[0]} ({100*(1-df_outlier.shape[0]/pop):.2f}%) samples within {i} standard deviation ")
+        df_outlier = df_train[(df_train[target] > i*(m+s)) | (df_train[target] < i*(m-s))]
+        print(f"  - {population - df_outlier.shape[0]} ({100*(1-df_outlier.shape[0]/population):.2f}%) samples within {i} standard deviations of mean")
     print("=" * 69)
-    print(f"{df_outlier.shape[0]} outliers identified beyond {deviations} standard deviations")
+    print(f"{df_outlier.shape[0]} outliers identified beyond {deviations} standard deviations from {target} mean")
     if verbose:
         print(df_outlier.head().T)
-    if remove:
-        df = df.drop(df_outlier.index)
-        print(f"Removed outliers from original DataFrame. Remaining samples: {df[df.target_mask.eq(True)].shape[0]}")
-    return df, df_outlier
+    return df_outlier
 
-def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5, drop: bool=False, name:str="")-> pd.DataFrame:
+def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5, drop: bool=False, name:str="lof")-> pd.DataFrame:
     """
     Uses skl.neighbors model to identify outliers across given features
     returns df with new feature identifying outliers
@@ -1064,75 +1135,18 @@ def tag_outliers_by_neighbors(df:pd.DataFrame, features: list, n_neighbors:int=5
     df[f'outlier_{name}'] = df[f'outlier_{name}'].astype('category')
     outlier_count = df.query(f'outlier_{name} == -1').shape[0]
     print("=" * 69)
-    print(f"\n{outlier_count} ({100 * outlier_count / df.shape[0] :.2f}%) of samples identified as outliers")
+    print(f"\n{outlier_count} ({100 * outlier_count / df.shape[0] :.2f}%) samples identified as outliers")
     if outlier_count == 0:
         df.drop(f'outlier_{name}', inplace=True, axis=1)
     if drop is True:
-        #TODO fix to only drop outliers from training data - can't drop test data!!!
-        outlier_mask = df[df[f'outlier_{name}'] == -1]
-        df.drop(outlier_mask.index, inplace=True)
-        df.drop(f'outlier_{name}', inplace=True, axis=1)
-        print(f"Removed {outlier_mask.shape[0]} outliers from original DataFrame.")
+        #only drop outliers from training data - can't drop test data!!!
+        if 'target_mask' in df.columns:
+            drop_mask = df[(df[f'outlier_{name}'] == -1) & (df.target_mask.eq(True))]
+            df.drop(drop_mask.index, inplace=True)
+            df.drop(f'outlier_{name}', inplace=True, axis=1)
+            print(f"Removed {drop_mask.sum()} outliers from training DataFrame.")
+        else: print("Unable to separate training data and drop outliers")
     return df
-
-def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, verbose: bool=True)-> None:
-    """
-    checks that categorical features have consistent unique values and 
-    similar distributions between training and testing data
-    -----------
-    for each feature, checks that unique values in training and testing data are the same
-    prints any unique values that appear in one set but not the other as potential noise
-    checks that the percentage of each unique value in training and testing is within pct_diff threshold 
-    prints any that exceed the threshold as potential consistency issues
-    -----------
-    requires: pandas
-    """
-    df_train = df[df.target_mask.eq(True)]
-    df_test = df[df.target_mask.eq(False)]
-    
-    def _print_consistency(feature, feature_values):
-        dict_index = {}
-        for v in feature_values:
-            try:
-                train_pct = 100*df_train.groupby(feature)[feature].count()[v] / df_train.shape[0]
-            except:
-                train_pct = 0
-            try:
-                test_pct = 100*df_test.groupby(feature)[feature].count()[v] / df_test.shape[0]
-            except:
-                test_pct = 0
-            delta = abs(train_pct - test_pct)
-            dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
-        df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
-        if df_plot[df_plot.Difference.ge(pct_diff)].shape[0] == 0:
-            print(f"✔️ {pct_diff}% consistent check passes for {feature}")
-        else:
-            print(f"❌ {pct_diff}% consistent check FAILED for {feature}")
-            print(df_plot[df_plot.Difference.ge(pct_diff)])
-        print(f"    - {df_train[feature].nunique()} unique values in {feature} training data")
-   
-    for feature in features:
-        train_v = df_train[feature].unique()
-        test_v = df_test[feature].unique()
-        train_noise = [f for f in train_v if f not in test_v]
-        test_noise = [f for f in test_v if f not in train_v]
-        if train_noise == [] and test_noise == []:
-            if len(train_v) >= 2:
-                _print_consistency(feature, train_v)
-            else:
-                print(f"{feature} is trivial, recommend dropping {feature}")
-        else:
-            print(f"❌ unique feature check FAILED for {feature}")
-            if test_noise != []:
-                print(f"*** Warning {feature} has test values that do not appear in training data! ***")
-                print(f"{feature} values: {test_noise} appear in testing, but not training data")
-            if train_noise != []:
-                print(f"{feature} values: {train_noise} appear in training, but not test data")
-            all_v = list(set(train_v) | set(test_v))
-            _print_consistency(feature, all_v)
-
-    if verbose:
-        plot_countplots(df, features)
 
 def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
     obj_features = [f for f in df.columns if f not in targets and
@@ -1435,26 +1449,26 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
         df.drop(columns=f"{col_name}_noise", inplace=True)
     return df
 
+def _plot_circle(df, cyclic_features):
+    """helper function to debug sin/cos generating functions"""
+    _, ax = plt.subplots(figsize=(3, 3))
+    ax.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
+    ax.set_xlabel(None)
+    ax.set_xticks([])
+    ax.set_ylabel(None)
+    ax.set_yticks([])
+    plt.show()
+
 def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False, 
                              verbose:bool=True, debug:bool=False)->pd.DataFrame:
     """
     decomposes a datetime feature into numeric and categorical features suitable for training
     ------
-    requires: pandas, numpy, seaborne
     """
     def _cycle(df, feature, points):
         df[f'{feature}_{points}_sin'] = np.sin(2 * np.pi * df[feature]/points)
         df[f'{feature}_{points}_cos'] = np.cos(2 * np.pi * df[feature]/points)
         return df
-
-    def _plot_circle(df, cyclic_features):
-        _, ax = plt.subplots(figsize=(3, 3))
-        ax.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
-        ax.set_xlabel(None)
-        ax.set_xticks([])
-        ax.set_ylabel(None)
-        ax.set_yticks([])
-        plt.show()
         
     my_palette = _get_colors()
     
@@ -1493,22 +1507,10 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False,
 def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, debug:bool=False)->pd.DataFrame:
     """
     decomposes a clock type feature into a sin/cos component
-    use points = 7 for days of week 
-    use points = 360 for compass headings
+    use points = 7 for days of week, 360 for compass headings etc etc
     ------
     returns df with updated features
-    ------
-    requires: pandas, numpy, seaborn
     """
-    def _plot_circle(df, cyclic_features):
-        _, ax = plt.subplots(figsize=(3, 3))
-        ax.scatter(df[cyclic_features[0]], df[cyclic_features[1]])
-        ax.set_xlabel(None)
-        ax.set_xticks([])
-        ax.set_ylabel(None)
-        ax.set_yticks([])
-        plt.show()
-    
     if points is None:
         points = df[feature].nunique()
     X = df[feature].astype(float).values.reshape(-1,1)
@@ -1731,8 +1733,10 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
         pca_proj = pca_projection.fit_transform(embed_v)
         residuals = y_p - y_v
         residuals = np.clip(residuals, np.percentile(residuals, 1), np.percentile(residuals, 99)) 
-        _plot_embeddings(fig.add_subplot(gs[0, 3]), pca_proj, y_v, "Embedding - Target")
-        _plot_embeddings(fig.add_subplot(gs[1, 3]), pca_proj, residuals, "Embedding - Residual", cmap='bwr')
+        cmap=_get_cmap()
+        _plot_embeddings(fig.add_subplot(gs[0, 3]), pca_proj, y_v, "Embedding - Target",cmap=cmap)
+        cmap2=_get_cmap(type=2)
+        _plot_embeddings(fig.add_subplot(gs[1, 3]), pca_proj, residuals, "Embedding - Residual", cmap=cmap2)
 
     plt.tight_layout()
     plt.show()
@@ -1913,11 +1917,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     '''
     SEED=69
     cat_list = [f for f in features if df[f].dtype == "category"]
-    if direction is None:
-        if metric.startswith("regression"):
-            direction='minimize'
-        else:
-            direction='maximize'
+
 
     def _study_objective(trial, study_model, X_train, y_train, X_val, y_val, 
                          cat_features=cat_list, metric=metric):
@@ -2057,10 +2057,17 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     y_t = y_train.loc[idx]
     
     tic = time()
+ 
+    if direction is None:
+        if metric.startswith("regression"):
+            direction='minimize'
+        else:
+            direction='maximize'
+
     study = optuna.create_study(direction=direction)
     m = metric.split("_")[0] if "_" in metric else metric
     study.optimize(lambda trial: _study_objective(trial, study_model, X_t, y_t, X_val, y_val, metric=m),
-                   n_trials=n_trials, timeout=timeout)
+                   n_trials=n_trials, timeout=timeout, show_progress_bar=True)
     toc = time()
     trial = study.best_trial
     if verbose == True:
@@ -2081,7 +2088,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     return params
 
 def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
-                              n_features: int=3, task: str='regression', direction: str='minimize',
+                              n_features: int=3, task: str='regression', direction: Optional[str]=None,
                               n_trials: int=22, timeout: int=1200,
                               CORES: int=4, DEVICE: str='cpu', 
                               hyper_params: dict=None, verbose: bool=True):
@@ -2105,6 +2112,12 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
 
     params = {}
     training_features = {}
+    if direction is None:
+        if metric.startswith("regression"):
+            direction='minimize'
+        else:
+            direction='maximize'
+
 
     for i, (k, model_cls) in enumerate(base_models.items()):
         if n_features <= 1 or n_features >= len(features) or n_features is None:
