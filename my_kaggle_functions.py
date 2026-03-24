@@ -1339,7 +1339,7 @@ def get_mean_by_cat_value(df: pd.DataFrame, cat_features: list, target: str) -> 
     mean/std computed with df.target_mask == True
     """
     for feature in cat_features: 
-        _get_mean_std(df, feature, target)
+        df = _get_mean_std(df, feature, target)
     return df
 
 def get_cat_on_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd.DataFrame:
