@@ -995,12 +995,10 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, ve
             dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
         df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
         if df_plot[df_plot.Difference.ge(pct_diff)].shape[0] == 0:
-            print(f"✔️ {feature} passed {pct_diff}% consistentcy check")
+            print(f"✔️ {feature}. \n  {pct_diff}% consistent: Passed. | Values: {df_train[feature].nunique()} | Type:  {df[feature].cat.categories.dtype}")
         else:
-            print(f"❌ {feature} failed {pct_diff}% consistentcy check")
+            print(f"❌ {feature}. \n  {pct_diff}% consistent: Failed. | Values: {df_train[feature].nunique()} | Type:  {df[feature].cat.categories.dtype}")
             print(df_plot[df_plot.Difference.ge(pct_diff)])
-        print(f" - {feature} has {df_train[feature].nunique()} unique values in training data")
-        print(f" - {feature} is {df[feature].cat.categories.dtype} data type")
    
     for feature in features:
         train_v = df_train[feature].unique()
@@ -1011,11 +1009,11 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, ve
             if len(train_v) >= 2:
                 _print_consistency(feature, train_v)
             else:
-                print(f"{feature} is trivial, recommend dropping {feature}")
+                print(f"‼️ {feature} is trivial, recommend dropping {feature}")
         else:
             print(f"❌ unique feature check FAILED for {feature}")
             if test_only != []:
-                print(f"*** Warning {feature} has test values that do not appear in training data! ***")
+                print(f"*** WARNING {feature} has test values that do not appear in training data! ***")
                 print(f"{feature} values: {test_only} appear in testing, but not training data")
             if train_only != []:
                 print(f"{feature} values: {train_only} appear in training, but not test data")
