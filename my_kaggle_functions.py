@@ -546,7 +546,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_ylabel("")
     
     # MAIN PLOT LOOP
-    for i, feature in enumerate(features):
+    for i, feature in enumerate(plot_features):
         is_num = df_plot[feature].dtype == 'float' or (df_plot[feature].dtype=='int' and df_plot[feature].nunique() > 4)
         if is_num:
             ax0 = fig.add_subplot(gs[i, 0])
@@ -995,12 +995,13 @@ def check_categoricals(df: pd.DataFrame, features: list, pct_diff: float=0.1, ve
             dict_index[v] = {'Train': train_pct, 'Test': test_pct, 'Difference': delta}
         df_plot = pd.DataFrame.from_dict(dict_index, orient="index") 
         if df_plot[df_plot.Difference.ge(pct_diff)].shape[0] == 0:
-            print(f"✔️ {feature}. \n  {pct_diff}% consistent: Passed. | Values: {df_train[feature].nunique()} | Type:  {df[feature].cat.categories.dtype}")
+            if verbose:
+                print(f"✔️ {feature}. \n  {pct_diff}% consistent: Passed. | Values: {df_train[feature].nunique()} | Type:  {df[feature].cat.categories.dtype}")
         else:
             print(f"❌ {feature}. \n  {pct_diff}% consistent: Failed. | Values: {df_train[feature].nunique()} | Type:  {df[feature].cat.categories.dtype}")
             print(df_plot[df_plot.Difference.ge(pct_diff)])
    
-    for feature in features:
+    for feature in tqdm(features):
         train_v = df_train[feature].unique()
         test_v = df_test[feature].unique()
         train_only = [f for f in train_v if f not in test_v]
@@ -1358,7 +1359,8 @@ def get_cat_on_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd
             print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
-def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, folds=7, index_id: str="1", task: str='regression') -> pd.DataFrame:
+def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, folds=7,
+                      index_id: str="1", task: str='regression') -> pd.DataFrame:
     """
     adds new features using by generating “hint” features via cross‑validated out‑of‑fold predictions and ensembles.
     -------
@@ -1402,6 +1404,8 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
     else:
         cols = [f"hint_{index_id}_{str(cat)}" for cat in cats]
         df_hint = pd.DataFrame(y_hint, index=df.index, columns=cols)
+        if len(cats) == 2:
+            df_hint.pop(cols[0])
         df = pd.concat([df, df_hint], axis=1)
 
     return df
