@@ -2115,7 +2115,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     params = {}
     training_features = {}
     if direction is None:
-        if metric.startswith("regression"):
+        if task.startswith("regression"):
             direction='minimize'
         else:
             direction='maximize'
