@@ -963,7 +963,9 @@ def _get_mean_std(df, feature, target):
             columns={
                 'mean': f'{target}_by_{feature}_mu',
                 'std': f'{target}_by_{feature}_std'}) 
+    idx = df.index
     df = df.merge(group_stats, on=feature, how='left')
+    df.index = idx
     df[f'{target}_by_{feature}_std'] = df[f'{target}_by_{feature}_std'].fillna(2*std)
     return df
 
