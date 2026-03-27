@@ -14,6 +14,9 @@
 #
 ################################################################################
 
+import warnings
+warnings.filterwarnings("ignore")
+
 # Import required libraries and toolkits 
 import numpy as np
 import pandas as pd 
@@ -114,6 +117,9 @@ def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
     pd.set_option('display.max_colwidth', 15)
     pd.set_option('display.width', 130)
     pd.set_option('display.precision', 4)
+
+    # logging levels
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     # Custom seaborn/matplotlib style
     my_palette = _get_colors()
