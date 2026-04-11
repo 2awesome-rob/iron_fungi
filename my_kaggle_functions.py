@@ -554,12 +554,12 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
             fmt = '%Y-%m-%d'
         #ax.set_xticks(x_tic, x_lbl, rotation=90)
         ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
-        #x_tic = ax.get_xticks()
-        #x_lbl = ["" for _ in x_tic]
-        #if len(x_lbl) > 0:
-        #    x_lbl[0] = x_tic[0]
-        #    x_lbl[-1] = x_tic[-1]
-        #ax.set_xticks(x_tic, x_lbl)
+        x_tic = ax.get_xticks()
+        x_lbl = ["" for _ in x_tic]
+        if len(x_lbl) > 0:
+            x_lbl[0] = x_tic[0]
+            x_lbl[-1] = x_tic[-1]
+        ax.set_xticks(x_tic, x_lbl)
 
     def _plot_dt_relationship(ax, feature, freq, window, y_min=y_min, y_max=y_max):
         df_td = df_plot.groupby([pd.Grouper(key=feature, freq=freq)])[target].mean().rename("mean_td").reset_index()
@@ -576,6 +576,12 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         else:
             fmt = '%Y-%m-%d'
         ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
+        x_tic = ax.get_xticks()
+        x_lbl = ["" for _ in x_tic]
+        if len(x_lbl) > 0:
+            x_lbl[0] = x_tic[0]
+            x_lbl[-1] = x_tic[-1]
+        ax.set_xticks(x_tic, x_lbl)
 
     def _plot_dt_tgt_cat_relationship(ax, feature, freq, window):
         for label in label_order:
@@ -592,7 +598,13 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         else:
             fmt = '%Y-%m-%d'
         ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
-
+        x_tic = ax.get_xticks()
+        x_lbl = ["" for _ in x_tic]
+        if len(x_lbl) > 0:
+            x_lbl[0] = x_tic[0]
+            x_lbl[-1] = x_tic[-1]
+        ax.set_xticks(x_tic, x_lbl)
+        
     def _plot_dt_autoplot(ax, feature, freq, window):
         ds = df_plot[[feature, target]].set_index(feature)
         # Limit to recent time periods (2 years) to focus on trends
@@ -916,7 +928,7 @@ def plot_lag_from_datetime(df:pd.DataFrame, dt_feature: str, target: str, freq: 
     pd.plotting.autocorrelation_plot(ds, ax=axs[0])
     pd.plotting.lag_plot(ds.sample(min(100, len(ds)), 
                                    random_state=67), lag=lag, ax=axs[1], alpha=0.5)
-    plt.title(f"{feature} lag analysis")
+    plt.title(f"{dt_feature} lag analysis")
     plt.show()
     return
 
