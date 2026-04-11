@@ -106,7 +106,7 @@ class Globals(NamedTuple):
     device: str
     cores: int
 
-def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
+def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     """
     Set global variables and configurations for the project.
     Returns a Globals namedtuple: (device, cores)
@@ -133,13 +133,10 @@ def set_globals(seed: int = 67, verbose: bool = True) -> Globals:
     # Random seed settings for reproducibility
     random.seed(seed)
     np.random.seed(seed)
+    torch.manual_seed(seed)
 
     # Device settings
-    try:
-        torch.manual_seed(seed)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    except Exception:
-        device = 'cpu'
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     cores = min(4, cpu_count())
 
     if verbose:
@@ -231,7 +228,7 @@ def load_tabular_data(
     cuts = 5
     if (df[target].dtype in [int, float]) and df[target].nunique() > cuts:
         df["target_label"] = pd.qcut(df[df.target_mask.eq(True)][target], cuts, labels=False)
-        df["target_label"] = df["target_label"].fillna(-1).astype('int16').astype('category')
+        df["target_label"] = df["target_label"].fillna(-1).astype(int)
     else:
         df["target_label"] = df[target]
 
@@ -296,7 +293,17 @@ def plot_target_eda(df: pd.DataFrame, target: str,
 
     if df_plot[target].dtype == 'float' or (
         df_plot[target].dtype == 'int' and n_unique > hist_threshold):
-        sns.histplot(df_plot[target], kde=True)
+        if df_plot[target].max() - df_plot[target].min() - (2 * df_plot[target].mean()) - df_plot[target].std() > 0:
+            if df_plot[target].min() > 0:
+                scale_log = True 
+            elif df_plot[target].min() > -1 and df_plot[target].max() > 100:
+                df_plot[target] = df_plot[target] + 1
+                scale_log = True
+            else:
+                scale_log = False
+        else:
+            scale_log = False
+        sns.histplot(df_plot[target], kde=True, log_scale=scale_log)
     else:
         df_plot[target] = df_plot[target].astype(str).astype('category')
         tgt_order = sorted(df_plot[target].unique().tolist())
@@ -331,8 +338,12 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     unplotted = []
     
     # single precalculation of sampled/sorted data
-    label_order = sorted(df_plot[target_label].dropna().unique().tolist(), reverse=True)
-    df_plot[target_label] = pd.Categorical(df_plot[target_label], categories=label_order, ordered=True)
+    if pd.api.types.is_categorical_dtype(df_plot[target_label]) and df_plot[target_label].cat.ordered:
+        label_order = df_plot[target_label].cat.categories.tolist()
+    else:
+        df_plot[target_label] = df_plot[target_label].astype(str)
+        label_order = sorted(df_plot[target_label].unique().tolist(), reverse=True)
+        df_plot[target_label] = pd.Categorical(df_plot[target_label], categories=label_order, ordered=True)
     df_scatter = df_plot.sample(n=SAMPLE, random_state=SEED)
     df_line = df_plot.sample(n=SAMPLE//10, random_state=SEED)
 
@@ -354,7 +365,8 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     gs = mpl.gridspec.GridSpec(len(plot_features), 3, figure=fig, hspace=0.4)
 
     def _plot_num_distribution(ax, feature, log_scale):
-        d = True if df_plot[feature].nunique() < 20 else False
+        #d = True if df_plot[feature].nunique() < 20 else False
+        d = True if df_plot[feature].dtype == 'int' else False
         sns.histplot(df_plot[feature], ax=ax, discrete=d, log_scale=log_scale)
         ax.set_title(f'{feature} distribution')
         ax.set_xlabel("")
@@ -362,7 +374,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_yticks([])
 
     def _plot_num_relationship(ax, feature, log_scale, y_min=y_min, y_max=y_max):
-        sns.regplot(data=df_scatter, x=feature, y=target, ax=ax, zorder=0, logx=log_scale,
+        sns.regplot(data=df_scatter, x=feature, y=target, ax=ax, logx=log_scale,
             scatter_kws={'alpha': 0.5, 's': 12},
             line_kws={'color': 'xkcd:rust', 'linestyle': ":", 'linewidth': 1})
         sns.lineplot(data=df_line, x=feature, y=target, ax=ax,
@@ -373,9 +385,11 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_ylabel("")
 
     def _plot_num_tgt_cat_relationship(ax, feature, log_scale):
-        d = True if df_plot[feature].nunique() < 20 else False
+        #TODO - consider replacing with stripplot + pointplot if too many unique values
+        #TODO -troubleshoot bug where targets appear to plot in wrong order for some features
+        d = True if df_plot[feature].dtype == 'int' else False
         df_p = df_plot[df_plot[feature] >0] if log_scale == True else df_plot
-        sns.histplot(data=df_p, stat='percent', x=feature, y=target,
+        sns.histplot(data=df_p, stat='percent', x=feature, y=target_label,
                      discrete=[d, True], legend=False, ax=ax, log_scale=[log_scale, False],
                      pthresh=0.002, pmax=0.998, zorder=0)
         quadmesh = ax.collections[0]
@@ -412,12 +426,13 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_yticks(y_tic, y_lbl, rotation=90)
 
     def _plot_num_boxplot(ax, feature, log_scale, top_label=high_label, bottom_label=low_label):
-        sns.boxplot(x=df_plot[feature], palette=MY_PALETTE , ax=ax, legend=False, gap=0.1,
+        sns.boxplot(x=df_plot[feature], palette=MY_PALETTE , ax=ax, gap=0.1,
                     hue=df_plot[target_label], hue_order=label_order, log_scale=log_scale)
         if top_label == "" and bottom_label == "":
             top_label, bottom_label = label_order[0], label_order[-1]
         ax.text(df_plot[feature].min(), -0.45, top_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
         ax.text(df_plot[feature].min(), 0.45, bottom_label, ha='left', va='center', fontsize=8, color='xkcd:steel grey')
+        ax.legend_.remove()
         ax.set_title(f'{feature} outliers by target')
         ax.set_xlabel("")
         ax.set_yticks([])
@@ -507,10 +522,10 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
 
     def _plot_cat_donut(ax, feature, order, color_map, outer_label=high_label, inner_label=low_label):
         ring_width = 0.7 / len(label_order)
-        if inner_label == "" and outer_label =="":
+        if inner_label == "" and outer_label == "":
             outer_label, inner_label  = label_order[0], label_order[-1]
         for i, label in enumerate(label_order):
-            value_counts = df[df[target_label] == label][feature].value_counts()
+            value_counts = df_plot[df_plot[target_label] == label][feature].value_counts()
             sorted_counts = value_counts.reindex(order).dropna()
             if len(order) > 20:
                 w_lbl = [s if i % 5 == 0 else "" for i, s in enumerate(sorted_counts.index)]
@@ -532,40 +547,69 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         ax.set_xlabel("")
         ax.set_ylabel("Count")
         ax.set_yticks([])
-       
+        # Format x-ticks as dates
+        if window == "monthly":
+            fmt = '%Y-%m'
+        else:
+            fmt = '%Y-%m-%d'
+        #ax.set_xticks(x_tic, x_lbl, rotation=90)
+        ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
+        #x_tic = ax.get_xticks()
+        #x_lbl = ["" for _ in x_tic]
+        #if len(x_lbl) > 0:
+        #    x_lbl[0] = x_tic[0]
+        #    x_lbl[-1] = x_tic[-1]
+        #ax.set_xticks(x_tic, x_lbl)
+
     def _plot_dt_relationship(ax, feature, freq, window, y_min=y_min, y_max=y_max):
         df_td = df_plot.groupby([pd.Grouper(key=feature, freq=freq)])[target].mean().rename("mean_td").reset_index()
-
-        sns.scatterplot(data=df_scatter, x=feature, y=target, ax=ax, zorder=0, alpha=0.5)
         sns.lineplot(data=df_td, x=feature, y="mean_td", ax=ax, zorder=1, color='xkcd:rust')
+        
+        sns.scatterplot(data=df_scatter, x=feature, y=target, ax=ax, zorder=0, alpha=0.5)
         ax.set_title(f'{target} {window} mean')
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.set_ylim(y_min, y_max)
+        # Format x-ticks as dates
+        if window == "monthly":
+            fmt = '%Y-%m'
+        else:
+            fmt = '%Y-%m-%d'
+        ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
 
     def _plot_dt_tgt_cat_relationship(ax, feature, freq, window):
         for label in label_order:
-            df_td = df.loc[df[target] == label].groupby(
+            df_td = df_plot.loc[df_plot[target_label] == label].groupby(
                 pd.Grouper(key=feature, freq=freq)
-                )[target].count().rename(f"count_{label}_td").reset_index()
+                )[target_label].count().rename(f"count_{label}_td").reset_index()
             sns.lineplot(data=df_td, x=feature, y=f"count_{label}_td", ax=ax)
-        ax.set_title(f'{target} {window} count')
+        ax.set_title(f'{target} count')
         ax.set_xlabel("")
         ax.set_ylabel("")
+        ax.set_yticks([])
+        if window == "monthly":
+            fmt = '%Y-%m'
+        else:
+            fmt = '%Y-%m-%d'
+        ax.xaxis.set_major_formatter(mpl.dates.DateFormatter(fmt))
 
-    def _plot_dt_autoplot(ax, feature):
-        #TODO should we do any sampling prior to plotting?
-        ds = df[[feature, target]].set_index(feature)
+    def _plot_dt_autoplot(ax, feature, freq, window):
+        ds = df_plot[[feature, target]].set_index(feature)
+        # Limit to recent time periods (2 years) to focus on trends
+        if ds.index.max() - ds.index.min() > pd.Timedelta(days=730):
+            ds = ds[ds.index >= ds.index.max() - pd.Timedelta(days=730)]
+        # Resample to reduce noise and improve visibility of trends
+        ds = ds.resample(freq).mean()
         pd.plotting.autocorrelation_plot(ds[target], ax=ax)
-        ax.set_title(f'{target} autocorrelation by {feature}')
+        ax.set_title(f'{target} autocorrelation by {window}')
         ax.set_xlabel("")
         ax.set_ylabel("")
     
-    # MAIN PLOT LOOP
+    # MAIN PLOT LOOP    
     for i, feature in enumerate(plot_features):
         is_num = df_plot[feature].dtype == 'float' or (df_plot[feature].dtype=='int' and df_plot[feature].nunique() > 4)
         if is_num:
-            if df_plot[feature].max() - df_plot[feature].min() - 2 * df_plot[feature].mean() - df_plot[feature].std() > 0:
+            if df_plot[feature].max() - df_plot[feature].min() - (2 * df_plot[feature].mean()) - df_plot[feature].std() > 0:
                 if df_plot[feature].min() > 0:
                     scale_log = True 
                 elif df_plot[feature].min() > -1 and df_plot[feature].max() > 100:
@@ -579,7 +623,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
             ax0 = fig.add_subplot(gs[i, 0])
             row_anchors.append(ax0)
             _plot_num_distribution(ax0, feature, log_scale=scale_log)
-            _plot_num_boxplot(fig.add_subplot(gs[i, 2]), feature, log_scale=False)
+            _plot_num_boxplot(fig.add_subplot(gs[i, 2]), feature, log_scale=scale_log)
             if tgt_cat: 
                 _plot_num_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, log_scale=scale_log)
             else: 
@@ -587,9 +631,10 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
             continue
 
         if df_plot[feature].dtype == 'O':
-            try: df_plot[feature] = pd.to_datetime(df_plot[feature])
+            try: 
+                df_plot[feature] = pd.to_datetime(df_plot[feature]).dt.tz_localize(None)
+                df_scatter[feature] = pd.to_datetime(df_scatter[feature]).dt.tz_localize(None)
             except Exception: pass
-
         is_dt = True if pd.api.types.is_datetime64_any_dtype(df_plot[feature]) else False
         if is_dt:
             if (df_plot[feature].max() - df_plot[feature].min()) > pd.Timedelta(days=365):
@@ -600,11 +645,17 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
             ax0 = fig.add_subplot(gs[i, 0])
             row_anchors.append(ax0)
             _plot_dt_distribution(ax0, feature, freq, window)
-            _plot_dt_autoplot(fig.add_subplot(gs[i, 2]), feature)
             if tgt_cat: 
                 _plot_dt_tgt_cat_relationship(fig.add_subplot(gs[i, 1]), feature, freq, window)
             else: 
                 _plot_dt_relationship(fig.add_subplot(gs[i, 1]), feature, freq, window)
+
+            if (df_plot[feature].max() - df_plot[feature].min()) < pd.Timedelta(days=140):
+                freq, window ="D", "day"
+            else:
+                freq, window = "W", "week"
+
+            _plot_dt_autoplot(fig.add_subplot(gs[i, 2]), feature, freq, window)
             continue
 
         is_cat = (df_plot[feature].dtype == "O" or 
@@ -633,6 +684,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                     df_plot[feature] = df_plot[feature].cat.add_categories('other')
                 df_plot[feature + "_grp"] = df_plot[feature].where(df_plot[feature].isin(top_X), "other")
                 order_grp = top_X + ['other'] if len(value_counts) > 128 else top_X
+                order_grp = sorted(order_grp, key=lambda x: (x != 'other', x))
                 color_map = _get_colors(color_keys=order_grp, n_hues=6, n_sats=5)
                 ax0 = fig.add_subplot(gs[i, :3])
                 row_anchors.append(ax0)
@@ -813,7 +865,7 @@ def plot_countplots(df: pd.DataFrame, features: List[str]) -> None:
     sns.despine()
     plt.show()
 
-def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group_feature: Optional[str]=None, sample: int=800):
+def plot_dummy_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group_feature: Optional[str]=None, sample: int=800):
     """
     plots lag and autocorrelation on a downsampe of the df
     """
@@ -830,6 +882,7 @@ def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group
         feature = df[group_feature].unique().tolist()[0]
         df_plot = df_plot[df_plot[group_feature]==feature]
 
+    #TODO - sort on time feature, consider resampling to regular intervals if time feature is irregular, and consider plotting rolling mean to better visualize trends
     ds = df_plot[[time_feature, target]].set_index(time_feature)
     _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
     pd.plotting.autocorrelation_plot(ds, ax=axs[0])
@@ -837,6 +890,35 @@ def plot_lag(df: pd.DataFrame, time_feature: str, target: str, lag: int=5, group
                                    random_state=67), lag=lag, ax=axs[1], alpha=0.5)
     plt.title(f"{feature} lag analysis")
     plt.show()
+
+def plot_lag_from_datetime(df:pd.DataFrame, dt_feature: str, target: str, freq: str, lag: int=1):
+    """
+    plots lag features for a target feature based on a datetime feature and specified frequency
+    freq can be "D", "W", "M" for daily, weekly, monthly lags
+    "Q", "Y" lags not tested
+    """
+    if 'target_mask' in df.columns:
+        df_plot = df[df.target_mask.eq(True)]
+    else:
+        df_plot = df.copy()
+
+    if freq == "W":
+        freq_resample = "W-MON"
+    elif freq == "M":
+        freq_resample = "MS"
+    else:
+        freq_resample = freq
+    
+    ds = df_plot[[dt_feature, target]].set_index(dt_feature)
+    ds = ds.resample(freq_resample, label="left", closed="left").mean()
+    
+    _, axs = plt.subplots(nrows=1, ncols=2, figsize=(9, 3))
+    pd.plotting.autocorrelation_plot(ds, ax=axs[0])
+    pd.plotting.lag_plot(ds.sample(min(100, len(ds)), 
+                                   random_state=67), lag=lag, ax=axs[1], alpha=0.5)
+    plt.title(f"{feature} lag analysis")
+    plt.show()
+    return
 
 ########################################
 # Data cleaning 
@@ -1101,7 +1183,11 @@ def denoise_categoricals(df: pd.DataFrame, features: List[str],
             # Identify noise
             noise_dict = {}
             for v in values:
-                if (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
+                if v not in train_v:
+                    noise_dict[v] = noise_label
+                elif v not in df_test[feature].unique():
+                    noise_dict[v] = noise_label
+                elif (df_train.groupby(feature)[feature].count()[v] < noise_ceil_train or
                     df_test.groupby(feature)[feature].count()[v] < noise_ceil_test):
                     noise_dict[v] = noise_label
             if len(noise_dict.keys()) == 0:
@@ -1266,6 +1352,18 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
         _plot_embeddings(df, cols[0], cols[1], target)
     return df
 
+class CustomDictionaryTransform:
+    def __init__(self, mask):
+        self.mask = mask
+        if mask is None:
+            print("Provide a valid dictionary transform")
+        pass
+    def transform(self, y:pd.Series) -> pd.Series:
+        return y.replace(self.mask).astype(int).astype('category')
+    def inverse_transform(self, y: np.ndarray) -> np.ndarray:
+        inv_mask = {v: k for k, v in self.mask.items()}
+        return np.vectorize(inv_mask.get)(y)
+
 def get_target_transformer(df: pd.DataFrame, target: str, 
                            targets: list, name: str="enc",
                            TargetTransformer=None, 
@@ -1402,34 +1500,36 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
     pandas, numpy, scikit learn 
     """
     mask = df.get("target_mask", pd.Series(True, index=df.index))
-    X = df.loc[mask, features]
-    X_test = df.loc[~mask, features]
-    y = df.loc[mask, target]
+    X = df.loc[mask, features].reset_index(drop=True)
+    y = df.loc[mask, target].reset_index(drop=True)
+    X_test = df.loc[~mask, features].reset_index(drop=True)
 
     if task.startswith('regression'):
         cv = skl.model_selection.KFold(n_splits=folds, shuffle=True, random_state=80085)
         base_model = skl.linear_model.Ridge() if model is None else model
-        y_hint = np.zeros(len(df))
+        y_hint = np.zeros(len(X))
+        y_test_hint = np.zeros(len(X_test))
+
     else:
         cats = y.unique()
         cv = skl.model_selection.StratifiedKFold(n_splits=folds, shuffle=True, random_state=80085)
         base_model = skl.naive_bayes.GaussianNB() if model is None else model
-        y_hint = np.zeros((len(df), len(cats)))
+        y_hint = np.zeros((len(X), len(cats)))
+        y_test_hint = np.zeros((len(X_test), len(cats)))
 
     models = []
     for (train_idx, val_idx) in tqdm(cv.split(X, y), total=cv.get_n_splits()):
         m = base_model 
-        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-        m.fit(X_train, y_train)
+        m.fit(X.iloc[train_idx], y.iloc[train_idx])
         if task.startswith('regression'):
-            y_hint[X.index[val_idx]] = m.predict(X_val)
-            y_hint[X_test.index] += m.predict(X_test) / 7
+            y_hint[val_idx] = m.predict(X.iloc[val_idx])
+            y_test_hint += m.predict(X_test) / folds
         else:
-            y_hint[X.index[val_idx], :] = m.predict_proba(X_val)
-            y_hint[X_test.index, :] += m.predict_proba(X_test) / 7
+            y_hint[X.index[val_idx], :] = m.predict_proba(X.iloc[val_idx])
+            y_test_hint += m.predict_proba(X_test) / folds
         models.append(m)
 
+    y_hint = np.vstack([y_hint, y_test_hint]) if X_test.shape[0] > 0 else y_hint
     if task.startswith('regression'):
         df[f"hint_{index_id}"] = y_hint
     else:
@@ -1441,7 +1541,7 @@ def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, fol
 
     return df
 
-def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, verbose:bool=True) -> pd.DataFrame:
+def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:str=None, task='classification', verbose:bool=True) -> pd.DataFrame:
     """
     generates clusters for selected feature space
     -----------
@@ -1456,7 +1556,7 @@ def get_clusters(df: pd.DataFrame, features:list, encoder, col_name:str, target:
     if verbose: print(f"Encoding cluster feature '{col_name}'")
     df[col_name] = encoder.fit_predict(X)
     df[f"{col_name}_noise"] = df[col_name] == -1
-    if target is not None and (df[target].dtype == 'float' or df[target].dtype == 'int'):
+    if target is not None and ('regression' in task or 'probability' in task):
         ds = df[df.target_mask.eq(True)].groupby(col_name)[target].mean()
         d = ds.to_dict()
         df[col_name].replace(d, inplace=True)
@@ -1537,7 +1637,7 @@ def get_cycles_from_datetime(df:pd.DataFrame, feature: str, drop:bool=False,
         print(f"{feature} features: {[f for f in df.columns if feature in f]}")
     return df
 
-def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, debug:bool=False)->pd.DataFrame:
+def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, verbose:bool=False, debug:bool=False)->pd.DataFrame:
     """
     decomposes a clock type feature into a sin/cos component
     use points = 7 for days of week, 360 for compass headings etc etc
@@ -1555,8 +1655,47 @@ def get_cycles_from_feature(df:pd.DataFrame, feature: str, points:float=None, de
 
     return df
 
+def get_lag_from_datetime(df:pd.DataFrame, dt_feature: str, target: str, freq: str, lag: int=4, verbose: bool=False):
+    """
+    generates lag features for a target feature based on a datetime feature and specified frequency
+    freq can be "D", "W", "M" for daily, weekly, monthly lags
+    "Q", "Y" lags not tested
+    """
+    if 'target_mask' in df.columns:
+        df_plot = df[df.target_mask.eq(True)]
+    else:
+        df_plot = df.copy()
+
+    if freq == "W":
+        freq_resample = "W-MON"
+    elif freq == "M":
+        freq_resample = "MS"
+    else:
+        freq_resample = freq
+    
+    ds = df_plot[[dt_feature, target]].set_index(dt_feature)
+    ds = ds.resample(freq_resample, label="left", closed="left").mean()
+    
+    for i in range(lag + 1):
+        ds[f'{freq}_{target}_lag{i}'] = ds[target].shift(i)
+    ds.interpolate(axis=1, inplace=True)
+
+    cols = [f'{freq}_{target}_lag{i}' for i in range(lag + 1)]
+    df['_resample_bin'] = df[dt_feature].dt.to_period(freq).dt.start_time
+    df = df.merge(
+        ds[cols],
+        left_on='_resample_bin',
+        right_index=True,
+        how='left'
+    )
+    df.drop(columns=['_resample_bin'], inplace=True)
+
+    if verbose:
+        pd.plotting.autocorrelation_plot(ds[target])
+    return df
+
 ########################################
-# Training
+# Training preparation and evaluation
 def split_training_data(df: pd.DataFrame, features: list, targets, 
                         drop_na: bool=False, validation_size: None| float | pd.Index = None):
     """
@@ -1640,7 +1779,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
     elif 'brier' in metric:
         return skl.metrics.brier_score_loss(actual, predicted)
     elif 'weighted_top' in metric:
-        top_k = 3 #TODO update to pull digit in metric following substring "_top_", default to 3 if not provided
+        top_k = int(metric.split("_top")[1])
         score_j = 0
         score=0
         for i in range(top_k):
@@ -1649,14 +1788,16 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
             score_j = score_i
         return score
     elif '_top' in metric:
-        top_k = 3  #TODO update to pull digit in metric following substring "_top_", default to 3 if not provided
+        top_k = int(metric.split("_top")[1])
         return skl.metrics.top_k_accuracy_score(actual, predicted, k = top_k)
     else:
         raise ValueError("""***UNSUPPORTED METRIC***\n
             Supported regression metrics: 'rmse', 'mae', 'r2', 'mape', 'rmsele' \n
             Supported classification and probability metrics: 'accuracy', 'precision', 'roc_auc', 'f1', 'log_loss', 'brier', 'top_k'""")
 
-def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed_v=None)-> None:
+def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
+                          y_t: np.ndarray, y_v_full: np.ndarray, y_p_full: np.ndarray,
+                          task: str='regression', embed_v=None)-> None:
     """
     plots training results with reference model for comparison
     -----------
@@ -1670,24 +1811,37 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
     -----------
     requires: pandas, scikit learn, matplotlib, numpy
     """
-    if task.startswith("regression"): base_model = skl.linear_model.Ridge()
-    else: base_model = skl.naive_bayes.GaussianNB()
-    numeric_features = [f for f in X_t.columns.tolist() if 
-                        X_t[f].dtype != "object" and 
-                        X_t[f].dtype != "string" and
-                        X_t[f].dtype != "category"]
-    
-    base_model.fit(X_t[numeric_features], y_t)
-    
-    if task.startswith("probability"):
-        if y_p.shape != y_v.shape:
-            y_p = np.argsort(y_p, axis=1)[:, -1:][:, ::-1]
-            task="classification"
-            y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
-        else:
-            y_base = base_model.predict_proba(X_v[numeric_features])[:, 1].reshape(-1, 1)
-    else:
-        y_base = base_model.predict(X_v[numeric_features]).reshape(-1, 1)
+    numeric_features = (X_t.select_dtypes(include=["number", "bool"])
+                        .columns
+                        .intersection(X_v.columns)
+                        .tolist())
+
+    n_sample = min(5000, len(y_v_full))
+    idx = np.random.choice(len(y_v_full), n_sample, replace=False)
+    X_v_sample = X_v.iloc[idx][numeric_features]
+    y_v = y_v_full[idx,:] if len(y_v_full.shape) > 1 else y_v_full[idx]
+    y_p = y_p_full[idx,: ] if len(y_p_full.shape) > 1 else y_p_full[idx]
+
+    if task.startswith("regression"):
+        base_model = skl.linear_model.Ridge()
+        base_model.fit(X_t[numeric_features], y_t)
+        y_base = base_model.predict(X_v_sample)
+
+    else: 
+        base_model = skl.naive_bayes.GaussianNB()
+        base_model.fit(X_t[numeric_features], y_t)
+        #binary classification with probability predictions
+        if task.startswith("probability") and y_p.shape[1] == 1:
+            y_base = base_model.predict_proba(X_v_sample)[:, 1].reshape(-1, 1)
+        #multiclass classification with probability predictions - convert to class predictions for plotting
+        elif task.startswith("probability") and y_p.shape[1] > 1:
+            y_p = np.argmax(y_p, axis=1).reshape(-1, 1)
+            task = "classification"
+        #classification with class predictions
+        if task.startswith("classification"):
+            y_base = base_model.predict(X_v_sample).reshape(-1, 1)
+            #print(y_p) #DEBUG
+            #print(y_base) #DEBIG
     
     def _plot_regression_resid(ax):
         skl.metrics.PredictionErrorDisplay.from_predictions(y_v[:1000], y_base[:1000], kind = 'actual_vs_predicted',
@@ -1776,90 +1930,6 @@ def plot_training_results(X_t, X_v, y_t, y_v, y_p, task: str='regression', embed
     plt.tight_layout()
     plt.show()
 
-########################################
-### Train and evaluate
-def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
-                          y_train: pd.Series, y_val:pd.Series,
-                          model, task: str="regression", 
-                          verbose: bool=True, 
-                          TargetTransformer=None):
-    """
-    trains a model and returns trained model & score
-    -----------
-    model: a scikit learn compatible model with fit and predict (and predict_proba) methods
-    task: "regression", "classification", or "probability" to determine prediction and scoring method
-    returns:
-    - trained model
-    - score based on task
-    -----------
-    requires: pandas, scikit learn, numpy, matplotlib
-    """
-    model.fit(X_train, y_train)
-    if task.startswith("regression") or task.startswith("classification"): y_predict = model.predict(X_val)
-    elif task.startswith("probability"): 
-            n_cats = y_train.nunique()
-            if n_cats == 2:
-                y_predict = model.predict_proba(X_val)[:, 1]
-            else:
-                y_predict = model.predict_proba(X_val)
-    else: 
-        print(f"Unknown task {task}")
-        return model, None
-    if TargetTransformer != None:
-        y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
-        y_v = TargetTransformer.inverse_transform(y_val.values.reshape(-1, 1))
-        y_p = TargetTransformer.inverse_transform(y_predict.reshape(-1, 1))
-    else:
-        y_t = np.array(y_train).reshape(-1, 1)
-        y_v = np.array(y_val).reshape(-1, 1)
-        y_p = y_predict.reshape(y_v.shape[0], -1)
-    score = calculate_score(y_v, y_p, metric = task)
-    print(f"***  model score:  {score:.4f}  ***")
-    if verbose == True: 
-        plot_training_results(X_train, X_val, y_t, y_v, y_p,
-                              task=task) 
-    return model, score
-
-def train_and_score_multiclass_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
-                                    y_train: pd.Series, y_val:pd.Series,
-                                    model, raw_score: bool=False,  top_k: int=3,
-                                    verbose: bool=True):
-    """
-    trains a multiclass prediction model and returns trained model & top k score
-    -----------
-    model: a scikit learn compatible model with fit and predict methods
-    -----------
-    returns:
-    - trained model
-    - top k score 
-    -----------
-    requires: pandas, scikit learn, numpy, matplotlib
-    """
-    model.fit(X_train, y_train)
-    y_predict = model.predict_proba(X_val)
-     # unweighted top_k accuracy
-    if raw_score:
-        score = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = top_k)
-    # weighted top_k accuracy
-    else:
-        score_j = 0
-        score=0
-        for i in range(1,top_k+1):
-            score_i = skl.metrics.top_k_accuracy_score(y_val, y_predict, k = i)
-            score += (score_i - score_j) / i
-            score_j = score_i
-
-    print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k} score:  {score:.4f}  ***")
-    if verbose == True: 
-        y_t = np.array(y_train).reshape(-1, 1)
-        y_v = np.array(y_val).reshape(-1, 1)
-        y_predict = model.predict(X_val)
-        y_p = np.array(y_predict).reshape(-1, 1)
-        #TODO: evaluate better training plots for multiclass performance
-        plot_training_results(X_train, X_val, y_t, y_v, y_p,
-                              task="classification") 
-    return model, score
-
 def get_feature_importance(X_train: pd.DataFrame, X_val: pd.DataFrame,
                            y_train: pd.DataFrame, y_val: pd.DataFrame, 
                            verbose: bool=True, task: str="regression"):
@@ -1935,7 +2005,7 @@ def get_feature_mutual_info(X: pd.DataFrame, y: pd.DataFrame, task:str='regressi
 def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, study_model: str, 
                                      metric: str='classification', direction: str=None,
                                      n_trials: int=20, timeout: int=1200, sample_size: int=25000,
-                                     CORES: int=4, DEVICE: str='cpu', verbose: bool=True)-> dict:
+                                     CORES: int=CORES, DEVICE: str=DEVICE, verbose: bool=True)-> dict:
     '''
     studies impact of hyperparameters on study models
     --------
@@ -2061,7 +2131,7 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
 
         model.fit(X_train, y_train)
         y_pred = model.predict(X_val) 
-        print(f"Trial {trial.number} {metric} ")
+        #print(f"Trial {trial.number} {metric} ")
         return  calculate_score(y_val, y_pred, metric=metric)
 
     def _add_static_params(study_params, study_model, cat_features=cat_list):
@@ -2122,59 +2192,51 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
     params = _add_static_params(study.best_params, study_model)
     return params
 
-def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
-                              n_features: int=3, task: str='regression', direction: Optional[str]=None,
-                              n_trials: int=22, timeout: int=1200,
-                              CORES: int=4, DEVICE: str='cpu', 
-                              hyper_params: dict=None, verbose: bool=True):
+########################################
+### Train and predict
+def train_and_score_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
+                          y_train: pd.Series, y_val:pd.Series,
+                          model, task: str="regression", 
+                          verbose: bool=True, 
+                          TargetTransformer=None):
     """
-    enables training multiple models with different feature subsets and hyperparameters
-    instantiates each models with hyperparameters
-        use hyper_params to provide a dictionary of hyperparameters for each model
-        if model hyper_params are not provided, uses optuna to find good hyperparameters for each model
-    identifies different feature subsets for each model 
-        use n_features = 1 to use all features for each model
-        use n_features > 1 to use different 1/n subsets of features for each model
-    --------
+    trains a model and returns trained model & score
+    -----------
+    model: a scikit learn compatible model with fit and predict (and predict_proba) methods
+    task: "regression", "classification", or "probability" to determine prediction and scoring method
     returns:
-        a dictionary of models ready for training and
-        a dictionary of feature subsets used for training each model
-    --------
-    requires: numpy, pandas
-    optional: optuna, plotly, scikit learn, lightgbm, xgboost, catboost
+    - trained model
+    - score based on task
+    -----------
+    requires: pandas, scikit learn, numpy, matplotlib
     """
-    def _every_nth(seq, n, start=0): return seq[start::n]
-
-    params = {}
-    training_features = {}
-    if direction is None:
-        if task.startswith("regression"):
-            direction='minimize'
-        else:
-            direction='maximize'
-
-
-    for i, (k, model_cls) in enumerate(base_models.items()):
-        if n_features <= 1 or n_features >= len(features) or n_features is None:
-            feats = features
-        else:
-            feats = _every_nth(features, n_features, start = i//n_features)
-        training_features[k] = feats
-        if hyper_params is not None and k in hyper_params:
-            params[k] = hyper_params[k]
-        else:
-            params[k] = study_model_hyperparameters(
-                df, feats, target, k, sample_size=25000,
-                metric=task, direction=direction,
-                n_trials=n_trials, timeout=timeout,
-                CORES=CORES, DEVICE=DEVICE, verbose=verbose
-            )
-
-    models = {
-        k: model_cls(**params[k])
-        for k, model_cls in base_models.items()
-    }
-    return models, training_features
+    model.fit(X_train, y_train)
+    if task.startswith("regression") or task.startswith("classification"): y_predict = model.predict(X_val)
+    elif task.startswith("probability"): 
+            n_cats = y_train.nunique()
+            if n_cats == 2:
+                y_predict = model.predict_proba(X_val)[:, 1]
+            else:
+                y_predict = model.predict_proba(X_val)
+    else: 
+        print(f"Unknown task {task}")
+        return model, None
+    if TargetTransformer != None:
+        y_t = TargetTransformer.inverse_transform(y_train.values.reshape(-1, 1))
+        y_v = TargetTransformer.inverse_transform(y_val.values.reshape(-1, 1))
+        y_p = TargetTransformer.inverse_transform(y_predict.reshape(-1, 1))
+    else:
+        y_t = np.array(y_train).reshape(-1, 1)
+        y_v = np.array(y_val).reshape(-1, 1)
+        y_p = y_predict.reshape(y_v.shape[0], -1)
+    score = calculate_score(y_v, y_p, metric = task)
+    #print(y_v) #DEBUG
+    #print(y_p) #Debug
+    print(f"***  model {task} score:  {score:.4f}  ***")
+    if verbose == True: 
+        plot_training_results(X_train, X_val, y_t, y_v, y_p,
+                              task=task) 
+    return model, score
 
 def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str, 
                        models: list, task: str='regression', TargetTransformer=None, 
@@ -2212,9 +2274,68 @@ def submit_predictions(X: pd.DataFrame, y: pd.Series, target: str,
     print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
     return submission_df
 
+def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:dict, 
+                              task: str='regression', direction: Optional[str]=None,
+                              n_trials: int=22, timeout: int=1200,
+                              CORES: int=CORES, DEVICE: str=DEVICE, feature_subset: bool=False,
+                              hyper_params: dict=None, n_features: int=0, verbose: bool=True):
+    """
+    enables training multiple models with different feature subsets and hyperparameters
+    instantiates each models with hyperparameters
+        use hyper_params to provide a dictionary of hyperparameters for each model
+        if model hyper_params are not provided, uses optuna to find good hyperparameters for each model
+    identifies different feature subsets for each model 
+        use n_features = 1 to use all features for each model
+        use n_features > 1 to use different 1/n subsets of features for each model
+    --------
+    returns:
+        a dictionary of models ready for training and
+        a dictionary of feature subsets used for training each model
+    --------
+    requires: numpy, pandas
+    optional: optuna, plotly, scikit learn, lightgbm, xgboost, catboost
+    """
+    def _every_nth(seq, n, start=0): return seq[start::n]
+
+    params = {}
+    training_features = {}
+    if direction is None:
+        if task.startswith("regression"):
+            direction='minimize'
+        else:
+            direction='maximize'
+
+
+    for i, (k, model_cls) in enumerate(base_models.items()):
+        if feature_subset == False:
+            feats = features
+        else:
+            feats = _every_nth(features, 2, start = i//2)
+#        if n_features <= 1 or n_features >= len(features) or n_features is None:
+#            feats = features
+#        else:
+#            feats = _every_nth(features, n_features, start = i//n_features)
+
+        training_features[k] = feats
+        if hyper_params is not None and k in hyper_params:
+            params[k] = hyper_params[k]
+        else:
+            params[k] = study_model_hyperparameters(
+                df, feats, target, k, sample_size=25000,
+                metric=task, direction=direction,
+                n_trials=n_trials, timeout=timeout,
+                CORES=CORES, DEVICE=DEVICE, verbose=verbose
+            )
+
+    models = {
+        k: model_cls(**params[k])
+        for k, model_cls in base_models.items()
+    }
+    return models, training_features
+
 def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
                     task: str = "regression", folds: int = 7, meta_model=None,
-                    TargetTransformer=None, verbose: bool = True, more_oof=None):
+                    TargetTransformer=None, more_oof=None, verbose: bool = True):
     """
     trains models with cross validation and returns trained models and a stacking meta model
     -----------
@@ -2246,8 +2367,13 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
     all_features = _get_all_features(features)
     X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
-    n_cats = y.nunique() if task.startswith("probability") else 1
-    
+    if task.startswith("probability"):
+        n_cats = y.nunique()
+    elif (task.startswith("classification") and y.nunique() > 2):
+        n_cats = y.nunique()
+    else:
+        n_cats = 1
+
     trained_models = {}
     model_names = list(models.keys())
     n_models = len(model_names)
@@ -2292,17 +2418,19 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
             except Exception:
                 model.fit(X_t, y_t)
 
-            if task.startswith("probability"):
-                y_v_pred = model.predict_proba(X_v)
+            if task.startswith("probability") or (task.startswith("classification") and n_cats > 2):
+                y_v_pred = model.predict_proba(X_v)    #shape (n_samples, n_cats)
             else:
-                y_v_pred = model.predict(X_v)
+                y_v_pred = model.predict(X_v)          #shape (n_samples,)
 
             if n_cats > 2: 
                 oof_pred[val_idx, :] = y_v_pred
             elif n_cats ==2: 
-                oof_pred[val_idx] = y_v_pred[:, 1].reshape(-1, 1)
+                y_v_pred = y_v_pred[:, 1].reshape(-1, 1)
+                oof_pred[val_idx] = y_v_pred
             else:
-                oof_pred[val_idx] = y_v_pred.reshape(-1,1)
+                y_v_pred = y_v_pred.reshape(-1,1)
+                oof_pred[val_idx] = y_v_pred
 
             cv_models.append(model)
 
@@ -2310,35 +2438,34 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
         if n_cats > 2:
             oof_matrix[:, :, i] = oof_pred
+            if "probability" not in task:
+                y_pred = np.argmax(oof_pred, axis=1) #shape (n_samples,)
+                y_v_pred = np.argmax(y_v_pred, axis=1) #shape (n_samples,)
+            else:
+                y_pred = oof_pred #shape (n_samples, n_cats)
         else:
             oof_matrix[:, i] = oof_pred.ravel()
+            y_pred = oof_pred.ravel()   #shape (n_samples,)
 
+        y_all = np.array(y).reshape(-1, 1)
+        y_pred = y_pred.reshape(len(y_all), -1) #
+        
+        y_t, y_v = y_t.values.ravel().reshape(-1, 1), y_v.values.ravel().reshape(-1, 1)
         if TargetTransformer is not None:
-            oof_pred = TargetTransformer.inverse_transform(oof_pred)
-            y_all = TargetTransformer.inverse_transform(
-                np.array(y).reshape(-1,1))
+            y_pred = TargetTransformer.inverse_transform(y_pred)
+            y_all = TargetTransformer.inverse_transform(y_all)
             if verbose:
-                y_t = TargetTransformer.inverse_transform(
-                    np.array(y_t).reshape(-1, 1)
-                )
-                y_v = TargetTransformer.inverse_transform(
-                    np.array(y_v).reshape(-1, 1)
-                )
+                y_t = TargetTransformer.inverse_transform(y_t)
+                y_v = TargetTransformer.inverse_transform(y_v)
                 y_v_pred = TargetTransformer.inverse_transform(
                     np.array(y_v_pred).reshape(-1, 1)
                 )
-        else:
-            y_all = np.array(y).reshape(-1, 1)
-        score = calculate_score(y_all, oof_pred, metric=task)
-        print(f"***  model {k} final cv score:  {score:.4f}  ***")
+        score = calculate_score(y_all, y_pred, metric=task)
+        print(f"***  model {k} final fold {task} score:  {score:.4f}  ***")
 
         if verbose:
             # note: plotting last fold's X_t, X_v, y_t, y_v, and corresponding preds
-            if n_cats == 2:
-                plot_training_results(X_t, X_v, y_t, y_v, y_v_pred[:, 1],
-                    task=task)
-            else:
-                plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
+            plot_training_results(X_t, X_v, y_t, y_v, y_v_pred,
                     task=task)
 
     # ---- Stacking meta-model on OOF predictions ----
@@ -2360,7 +2487,7 @@ def cv_train_models(df: pd.DataFrame, features: dict, target: str, models: dict,
 
     return trained_models, meta_model
 
-def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
+def submit_cv_predict(X: pd.DataFrame, y: pd.Series, features: dict, target:str, 
                       models: dict, task: str='regression', 
                       TargetTransformer=None, meta_model=None, more_oof=None,
                       path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
@@ -2374,8 +2501,13 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
     requires: numpy, pandas, scikit learn
     optional: lightgbm, xgboost, catboost
     """
-    def _plot_target(df: pd.DataFrame, target: str, title: str='predicted target distribution', hist: int=20) -> None:
-        if pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
+    def _plot_target(df: pd.DataFrame, target: str, 
+                     title: str='predicted target distribution', hist: int=20, picks: list=None) -> None:
+        if picks is not None:
+            df_long = df[picks].melt(var_name="seq", value_name="value")
+            sns.countplot(data=df_long, x="value", hue="seq", stat='percent', dodge=True)
+            plt.xlabel("")
+        elif pd.api.types.is_float_dtype(df[target]) or (df[target].dtype == int and df[target].nunique() > hist):
             sns.histplot(df[target], 
                          bins = min(df[target].nunique(), 42),  # limit number of bins for large unique value counts
                          kde = True)
@@ -2385,200 +2517,96 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:s
         plt.yticks([])
         plt.show()
 
+    n_cats = 0 if 'regression' in task else len(models[list(models.keys())[0]][0].classes_)
+    top_k = 0 if '_top' not in task else int(task.split("_top")[1])
+
     if meta_model is None:
-        y_test = np.zeros(y.shape[0])
+        if n_cats > 2:
+            y_test = np.zeros((y.shape[0], n_cats))
+        else:
+            y_test = np.zeros(y.shape[0])
     else:
         extra_cols = 0
         cols = len(models.keys())
         if more_oof is not None:
             more_oof = more_oof.reshape(y.shape[0], -1)
             extra_cols = more_oof.shape[1]
-        y_oof_matrix = np.zeros((y.shape[0], cols + extra_cols))
-        if extra_cols > 0:
-            y_oof_matrix[:, cols:] = more_oof
+        if n_cats > 2:
+            y_oof_matrix = np.zeros((y.shape[0], n_cats, cols + extra_cols))
+            if extra_cols > 0:
+                y_oof_matrix[:, :, cols:] = more_oof.reshape(y.shape[0], n_cats, extra_cols)
+        else:
+            y_oof_matrix = np.zeros((y.shape[0], cols + extra_cols))
+            if extra_cols > 0:
+                y_oof_matrix[:, cols:] = more_oof
 
-    for i, (k, cv_models) in enumerate(models.items()):
-        y_cv = np.zeros(y.shape[0])
+    for i, (k, cv_models) in tqdm(enumerate(models.items()), desc="Making predictions", unit="models"):
+        if n_cats > 2:
+            y_cv = np.zeros((y.shape[0], n_cats))
+        else:
+            y_cv = np.zeros(y.shape[0])
         training_features = features[k]
         for model in cv_models:
-            if task.startswith("probability"):
+            if task.startswith("probability") and n_cats == 2:
                 y_cv += model.predict_proba(X[training_features])[:, 1]
+            elif n_cats > 2:
+                y_cv += model.predict_proba(X[training_features])
             else:
-                y_cv += model.predict(X[training_features])
+                y_cv += np.ravel(model.predict(X[training_features]))
         y_cv /= len(cv_models)
         if meta_model is None:
             y_test += y_cv
         else:
-            y_oof_matrix[:, i] = y_cv
+            if n_cats > 2:
+                y_oof_matrix[:, :, i] = y_cv
+            else:
+                y_oof_matrix[:, i] = y_cv
 
     if meta_model is None:
         y_test /= len(models.keys())
-    elif task.startswith("probability"):
+    elif task.startswith("probability") and n_cats == 2:
         y_test = meta_model.predict_proba(y_oof_matrix)[:, 1]
+    elif n_cats > 2:
+        y_test = meta_model.predict_proba(y_oof_matrix.reshape(y.shape[0], -1))
     else:
         y_test = meta_model.predict(y_oof_matrix)
     
-    # note: when TargetTransformer is used, meta model is trained on transformed target values, 
-    if TargetTransformer is None:
+    if top_k > 0 and n_cats > 2:
+        topk_indices = np.argsort(y_test, axis=1)[:, -top_k:][:, ::-1]
+        if TargetTransformer is not None:
+            topk_cats = TargetTransformer.inverse_transform(topk_indices.flatten()).reshape(-1, top_k)
+        else:
+            topk_cats = topk_indices
+        results = {}
+        for i in range(top_k):
+            results[f'pick_{i+1}'] = topk_cats[:, i]
+        results['top3_combined'] = [f"{cat1} {cat2} {cat3}" 
+                          for cat1, cat2, cat3 in zip(topk_cats[:, 0], topk_cats[:, 1], topk_cats[:, 2])]
+        df_results = pd.DataFrame(results) 
+        #picks = list(results.keys())
+        y_pred = df_results['top3_combined']
+
+    elif top_k == 0 and n_cats > 2:
+        y_test = np.argmax(y_test, axis=1)
+        if TargetTransformer is not None:
+            y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+        else:
+            y_pred = np.array(y_test).reshape(-1, 1)
+
+    elif TargetTransformer is None:
         y_pred = np.array(y_test).reshape(-1, 1)
+        #picks = None
     else:
         y_pred = TargetTransformer.inverse_transform(np.array(y_test).reshape(-1, 1))
+        #picks = None
     
     submission_df = pd.read_csv(f"{path}/{file}")
     submission_df[target] = y_pred
     submission_df.to_csv('/kaggle/working/submission.csv', index=False)
 
     if verbose:
-        _plot_target(submission_df, target, title = f"distribution of {target} predictions")
-
-    print("=" * 6, 'save success', "=" * 6, "\n")
-    print(f"Predicted target mean: {y_pred.mean():.4f} +/- {y_pred.std():.4f}")
-
-    return submission_df
-
-def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, models: dict,
-                                folds: int = 7, meta_model=None, task: str="classification_weighted_top_3",  top_k: int=3,
-                                verbose: bool = True):
-    
-    """
-    trains models with cross validation and returns trained models and a stacking meta model
-    -----------
-    for each model in models, trains with cross validation using the corresponding feature subset in features
-    returns a dictionary of trained models and a meta stacking model
-    prints OOF validation score for each model
-    -----------
-    requires: numpy, pandas, scikit learn
-    optional: lightgbm, xgboost, catboost
-    """
-    def _get_all_features(features=features):
-        list_of_lists = [f for f in features.values()]
-        flat = []
-        seen = set()
-        for sub in list_of_lists:
-            for item in sub:
-                if item not in seen:
-                    seen.add(item)
-                    flat.append(item)
-        return flat
-
-    print("=" * 69)
-    print(f"Training {len(models.keys())} Models")
-    print("=" * 69)
-
-    all_features = _get_all_features(features)
-    X, y, _, _, X_test, y_test = split_training_data(df, all_features, target)
-
-    trained_models = {}
-    model_names = list(models.keys())
-    n_models = len(model_names)
-    n_cats = y.nunique()
-
-#    OOF matrix only needed for training meta model
-    oof_matrix = np.zeros((y.shape[0], n_cats, n_models))
-    
-    for i, (k, model) in enumerate(models.items()):
-        print(f"Training Model: {k}")
-        cv = skl.model_selection.StratifiedKFold(
-            n_splits=folds, shuffle=True, random_state=69 + i
-            )
-
-        cv_models = []
-        oof_pred = np.zeros((y.shape[0], n_cats))
-        for (train_idx, val_idx) in tqdm(cv.split(X, y), desc="training models", unit="folds"):
-            X_t, X_v = X[features[k]].iloc[train_idx], X[features[k]].iloc[val_idx]
-            y_t, y_v = y.iloc[train_idx], y.iloc[val_idx]
-            
-            model.fit(X_t, y_t)
-            y_v_pred = model.predict_proba(X_v)
-            oof_pred[val_idx, :] = y_v_pred
-            cv_models.append(model)
-
-        trained_models[k] = cv_models
-        oof_matrix[:, :, i] = oof_pred
-        y_all = np.array(y).reshape(-1, 1)
-
-        score = calculate_score(y_all, oof_pred, metric=task)
-        print(f"***  model {'raw' if raw_score==True else 'weighted'} top-{top_k}  cv score:  {score:.4f}  ***")
-
-    # ---- Stacking meta-model on OOF predictions ----
-    tic=time()
-    meta_model = skl.linear_model.LogisticRegression() if meta_model is None else meta_model
-    print(f"Selected meta model is: {meta_model}")
-    oof_matrix = oof_matrix.reshape(y.shape[0], -1)
-    print(f"Training Meta Model on {oof_matrix.shape[1]} OOF predictions and {y.shape[0]} samples...")
-    meta_model.fit(oof_matrix, y)
-    print(f"Meta Model training completed in {time()-tic:.2f}sec")
-
-    return trained_models, meta_model
-
-def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
-                      models: dict, TargetTransformer=None, meta_model=None, top_k: int=3,
-                      path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
-    """
-    makes predictions with cross validated models and returns predictions
-    -----------
-    for each model in models, makes predictions with each fold model and averages predictions for each model
-    averages predictions across models to get final predictions
-    returns a array of predictions for submission
-    -----------
-    requires: numpy, pandas, scikit learn
-    optional: lightgbm, xgboost, catboost
-    """
-    def _plot_target(df: pd.DataFrame, picks: str, title: str='predicted target distribution') -> None:
-        df_long = df[picks].melt(var_name="seq", value_name="value")
-        sns.countplot(data=df_long, x="value", hue="seq", stat='percent', dodge=True)
-        plt.yticks([])
-        plt.xlabel("")
-        plt.title(title)
-        plt.show()
-
-    n_models = len(list(models.keys()))
-    n_cats = len(models[list(models.keys())[0]][0].classes_)
-    
-    if meta_model is None:
-        y_test = np.zeros((y.shape[0], n_cats))
-    else:
-        y_oof_matrix = np.zeros((y.shape[0], n_cats, n_models))
-
-    for i, (k, cv_models) in tqdm(enumerate(models.items()), desc="Training models", unit="models"):
-        y_cv = np.zeros((y.shape[0], n_cats))
-        training_features = features[k]
-        for model in tqdm(cv_models, desc=f"Cross validated {k} models", unit="models"):
-            y_cv += model.predict_proba(X[training_features])
-            
-        y_cv /= len(cv_models)
-        if meta_model is None:
-            y_test += y_cv
-        else:
-            y_oof_matrix[:, :, i] = y_cv
-
-    if meta_model is None:
-        y_test /= len(models.keys())
-    else:
-        y_oof_matrix = y_oof_matrix.reshape(y.shape[0], -1)
-        y_test = meta_model.predict_proba(y_oof_matrix)
-
-    #top_k indices (column #s in y_predict)
-    topk_indices = np.argsort(y_test, axis=1)[:, -top_k:][:, ::-1]
-   
-    if TargetTransformer is not None:
-        topk_cats = TargetTransformer.inverse_transform(topk_indices.flatten()).reshape(-1, top_k)
-    else:
-        topk_cats = topk_indices
-
-    results = {}
-    for i in range(top_k):
-        results[f'pick_{i+1}'] = topk_cats[:, i]
-    results['top3_combined'] = [f"{cat1} {cat2} {cat3}" 
-                          for cat1, cat2, cat3 in zip(topk_cats[:, 0], topk_cats[:, 1], topk_cats[:, 2])]
-
-    df_results = pd.DataFrame(results)    
-    submission_df = pd.read_csv(f"{path}/{file}")
-    submission_df[target] = results['top3_combined']
-    submission_df.to_csv('/kaggle/working/submission.csv', index=False)
-
-    if verbose:
-        _plot_target(df_results, list(results.keys()), title = f"distribution of {target} predictions")
+        _plot_target(submission_df, target, picks = None, title = f"distribution of {target} predictions")  
+        print(submission_df.head(10))      
     print("=" * 6, 'save success', "=" * 6, "\n")
 
     return submission_df
@@ -2753,7 +2781,7 @@ class OrdinalLoss(nn.Module):
 
 def train_and_score_nn_model(
         X_train: pd.DataFrame, X_val: pd.DataFrame, y_train: pd.Series, y_val: pd.Series,
-        model, DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None,
+        model, DEVICE:str=DEVICE, task: str="regression", verbose: bool=True, TargetTransformer=None,
         num_epochs: int=100, lr: float=2e-5, patience_limit: int=5, batch_size: int=2048,
         save_path="/kaggle/working"):
     """
@@ -2923,7 +2951,7 @@ def train_and_score_nn_model(
 
     return model, training_log_df, y_p
 
-def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, DEVICE,
+def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, DEVICE:str=DEVICE,
                     task: str = "regression", folds: int = 7,
                     num_epochs=100, lr=1e-4, batch_size=2048, save_path=None,
                     TargetTransformer=None, verbose: bool = True):
@@ -2970,7 +2998,7 @@ def cv_train_nn_model(df: pd.DataFrame, features: list, target: str, model_fn, D
 
     return cv_models, pd.concat(training_logs), oof_preds
 
-def get_nn_predictions(X, models, batch_size, DEVICE,
+def get_nn_predictions(X, models, batch_size, DEVICE:str=DEVICE,
                        task: str="regression", n_classes:int=1,
                        get_embed:bool=False):
 
@@ -3044,7 +3072,7 @@ def get_nn_predictions(X, models, batch_size, DEVICE,
     return predictions
 
 def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:str, 
-                      models: list, DEVICE, task: str='regression', TargetTransformer=None, batch_size=4096,
+                      models: list, DEVICE:str=DEVICE, task: str='regression', TargetTransformer=None, batch_size=4096,
                       path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
     """
     makes predictions with cross validated models and returns predictions
@@ -3087,7 +3115,7 @@ def submit_nn_predict(X: pd.DataFrame, y: pd.DataFrame, features: list, target:s
     return submission_df
 
 def get_nn_target_hints(df: pd.DataFrame, features: list, target: str,
-                        model, DEVICE, task='regression', index_id:str="1",
+                        model, DEVICE:str=DEVICE, task='regression', index_id:str="1",
                         batch_size=1024, folds=7, num_epochs=20, verbose:bool=True) -> pd.DataFrame:
     """
     """
@@ -3177,6 +3205,11 @@ def clean_categoricals(df: pd.DataFrame, features: list,
     print("Function will be depricated -> use 'clean_strings'")
     return clean_strings(df, features, string_length, fillna)
 
+def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, models: dict,
+                                folds: int = 7, meta_model=None, task: str="classification_weighted_top_3",  top_k: int=3,
+                                verbose: bool = True):
+    print("Function will be depricated -> use 'cv_train_models' with task = 'classification_weighted_top_3' and TargetTransformer for label encoding")
+    return cv_train_models(df, features, target, models, folds=folds, meta_model=meta_model, task=task, verbose=verbose)
 
 def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:int = 8, sample:int = 25000, verbose: bool = True) -> pd.DataFrame:
     print("Function will be depricated -> use 'get_embeddings'")
@@ -3205,6 +3238,19 @@ def get_feature_by_grouping_on_cat(df, features, target):
     print("To be depricated -> use 'get_mean_by_cat_value'")
     return get_mean_by_cat_value(df, features, target)
 
+def submit_cv_multiclass_predict(X: pd.DataFrame, y: pd.DataFrame, features: dict, target:str, 
+                      models: dict, TargetTransformer=None, meta_model=None, top_k: int=3,
+                      path: str="", file: str="sample_submission.csv", verbose: bool=True)-> pd.DataFrame:
+    print("This function is decremented. Please use submit_cv_predict with task='classification_top3' instead.")
+    return submit_cv_predict(X, y, features, target, models, task='classification_top3', TargetTransformer=TargetTransformer, meta_model=meta_model, path=path, file=file, verbose=verbose)
+
+def train_and_score_multiclass_model(X_train: pd.DataFrame, X_val:pd.DataFrame, 
+                                    y_train: pd.Series, y_val:pd.Series,
+                                    model, raw_score: bool=False,  top_k: int=3,
+                                    verbose: bool=True):
+    print("This function is decremented. Please use train_and_score_model with appropriate task parameter instead.")
+    return train_and_score_model(X_train, X_val, y_train, y_val,
+                          model, task="classification_top3", verbose=verbose)
 
 """
 TODO: GLM feature analysis
@@ -3306,3 +3352,5 @@ plot_regression(TRAIN, num_feature_names, 'price')
 #import plotly.express as px
 #from statsmodels import graphics
 #from pyexpat import features
+
+print("My Kaggle functions loaded successfully!")
