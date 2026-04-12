@@ -21,6 +21,9 @@ warnings.filterwarnings("ignore")
 import numpy as np
 import pandas as pd 
 
+
+#pip install torch==2.1.0+cu118 torchvision==0.16.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+
 import torch
 import torch.nn as nn
 
@@ -134,6 +137,10 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+    print(torch.__version__)
+    print(torch.version.cuda)
+    print(torch.cuda.get_device_name())
 
     # Device settings
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -604,7 +611,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
             x_lbl[0] = x_tic[0]
             x_lbl[-1] = x_tic[-1]
         ax.set_xticks(x_tic, x_lbl)
-        
+
     def _plot_dt_autoplot(ax, feature, freq, window):
         ds = df_plot[[feature, target]].set_index(feature)
         # Limit to recent time periods (2 years) to focus on trends
@@ -707,7 +714,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
 
     if unplotted: print(f"Unplotted Features: {unplotted}")
     # add tear lines between features
-    for i in range(len(features) - 1):
+    for i in range(len(plot_features) - 1):
         bottom_y = row_anchors[i].get_position().y0
         top_y = row_anchors[i + 1].get_position().y1
         y_pos = (bottom_y + top_y) / 2
