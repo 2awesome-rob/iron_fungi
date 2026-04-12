@@ -22,8 +22,9 @@ import numpy as np
 import pandas as pd 
 
 
-#pip install torch==2.1.0+cu118 torchvision==0.16.0+cu118 --index-url https://download.pytorch.org/whl/cu118
-
+import pip
+pip install --upgrade --force-reinstall torch==2.1.0+cu118 torchvision==0.16.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+    
 import torch
 import torch.nn as nn
 
@@ -115,6 +116,8 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     Returns a Globals namedtuple: (device, cores)
     """
     # Visualization settings
+
+    
     pd.set_option('display.max_rows', 25)
     pd.set_option('display.max_columns', 10)
     pd.set_option('display.max_colwidth', 15)
@@ -138,12 +141,16 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    print(torch.__version__)
-    print(torch.version.cuda)
-    print(torch.cuda.get_device_name())
-
+    #print(torch.__version__)
+    
     # Device settings
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    if torch.cuda.is_available():
+        device = "cuda"
+        print(f"cuda version: {torch.version.cuda}")
+        print(f"cuda device name: {torch.cuda.get_device_name()}")
+    else:
+        device = "cpu"
     cores = min(4, cpu_count())
 
     if verbose:
