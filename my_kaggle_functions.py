@@ -1322,6 +1322,7 @@ def _plot_embeddings(df: pd.DataFrame, x:str, y:str, target:Optional[str]=None) 
     plt.yticks(())
     plt.xlabel("")
     plt.ylabel("")
+    plt.title(f"Embeddings: {x} vs {y}")
     plt.show()
     return
 
@@ -1430,15 +1431,16 @@ def get_target_transformer(df: pd.DataFrame, target: str,
     targets = targets + [enc_tgt]
     return df, targets, TargetTransformer
 
-def get_target_as_ordered_category(df: pd.DataFrame, target: str, targets: list, n_bins: int=8, verbose: bool=True):
+def get_target_as_ordered_category(df: pd.DataFrame, target: str, targets: list, n_bins: int=8, bins=None, verbose: bool=True):
     """
     bins a numeric target into n_bins ordered categories
     """
     df["target_ord_cat"] = -1
     mask = df.target_mask.eq(True)
-    bins = np.linspace(df.loc[mask, target].min(), df.loc[mask, target].max(), n_bins+1).tolist()
-    bins[0] = -np.inf
-    bins[-1] = np.inf
+    if bins is None:
+        bins = np.linspace(df.loc[mask, target].min(), df.loc[mask, target].max(), n_bins+1).tolist()
+        bins[0] = -np.inf
+        bins[-1] = np.inf
     df.loc[mask, "target_ord_cat"] = pd.cut(
         df.loc[mask, target], bins=bins, labels=[i for i in range(n_bins)]
     ).astype(int).astype('category')
@@ -1830,7 +1832,7 @@ def calculate_score(actual, predicted, metric='rmse')-> float:
 
 def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
                           y_t: np.ndarray, y_v_full: np.ndarray, y_p_full: np.ndarray,
-                          task: str='regression', embed_v=None)-> None:
+                          task: str='regression', embed_v_full=None)-> None:
     """
     plots training results with reference model for comparison
     -----------
@@ -1854,6 +1856,8 @@ def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
     X_v_sample = X_v.iloc[idx][numeric_features]
     y_v = y_v_full[idx,:] if len(y_v_full.shape) > 1 else y_v_full[idx]
     y_p = y_p_full[idx,: ] if len(y_p_full.shape) > 1 else y_p_full[idx]
+    if embed_v is not None:
+        embed_v = embed_v_full[idx, :]
 
     if task.startswith("regression"):
         base_model = skl.linear_model.Ridge()
@@ -3245,13 +3249,13 @@ def cv_train_multiclass_models(df: pd.DataFrame, features: dict, target: str, mo
     return cv_train_models(df, features, target, models, folds=folds, meta_model=meta_model, task=task, verbose=verbose)
 
 def get_umap_embeddings(df: pd.DataFrame, features:list, target:str, encode_dim:int = 8, sample:int = 25000, verbose: bool = True) -> pd.DataFrame:
-    print("Function will be depricated -> use 'get_embeddings'")
+    print("Function will be depricated -> use 'get_embeddings' with mapper = 'UMAP', sample_size=25000")
     return get_embeddings(df, features, "UMAP", "umap", sample_size=sample, target=target, encode_dim=encode_dim,
                     verbose=verbose)
 
 def get_pls_embeddings(df: pd.DataFrame, features:list, target:list, col_names:str, 
                    sample_size: float=None, n_components:int=2, verbose=True) -> pd.DataFrame:
-    print("Function will be depricated -> use 'get_embeddings'")
+    print("Function will be depricated -> use 'get_embeddings' with mapper = 'PLS'")
     return get_embeddings(df, features, "PLS", col_names, sample_size=sample_size, target=target, encode_dim=n_components,
                     verbose=verbose)
 
