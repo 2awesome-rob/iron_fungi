@@ -1434,16 +1434,16 @@ def get_target_as_ordered_category(df: pd.DataFrame, target: str, targets: list,
     """
     bins a numeric target into n_bins ordered categories
     """
-    df[f"target_ord_cat"] = -1
+    df["target_ord_cat"] = -1
     mask = df.target_mask.eq(True)
     bins = np.linspace(df.loc[mask, target].min(), df.loc[mask, target].max(), n_bins+1).tolist()
     bins[0] = -np.inf
     bins[-1] = np.inf
-    df.loc[mask, f"target_ord_cat"] = pd.cut(
+    df.loc[mask, "target_ord_cat"] = pd.cut(
         df.loc[mask, target], bins=bins, labels=[i for i in range(n_bins)]
     ).astype(int).astype('category')
-    targets.append(f"target_ord_cat")
-    if verbose: mkf.plot_target_eda(df, f"target_ord_cat", title = f'target_ord_cat distribution')
+    targets.append("target_ord_cat")
+    if verbose: plot_target_eda(df, "target_ord_cat", title = f'target_ord_cat distribution')
     return df, targets
 
 def get_transformed_features(df: pd.DataFrame, features: List[str], FeatureTransformer, winsorize: tuple=[0,0]):
