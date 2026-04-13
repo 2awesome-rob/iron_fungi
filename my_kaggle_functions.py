@@ -1856,7 +1856,7 @@ def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
     X_v_sample = X_v.iloc[idx][numeric_features]
     y_v = y_v_full[idx,:] if len(y_v_full.shape) > 1 else y_v_full[idx]
     y_p = y_p_full[idx,: ] if len(y_p_full.shape) > 1 else y_p_full[idx]
-    if embed_v is not None:
+    if embed_v_full is not None:
         embed_v = embed_v_full[idx, :]
 
     if task.startswith("regression"):
@@ -1931,7 +1931,7 @@ def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
         ax.set_title(title)
         ax.axis('off')
 
-    col = 3 if embed_v is None else 4
+    col = 3 if embed_v_full is None else 4
 
     fig = plt.figure(figsize=(3*col, 6))
     gs = mpl.gridspec.GridSpec(2, col, figure=fig)
@@ -1954,7 +1954,7 @@ def plot_training_results(X_t: pd.DataFrame, X_v: pd.DataFrame,
         _plot_distribution(fig.add_subplot(gs[0, 2]))
         _plot_classification_cm(fig.add_subplot(gs[1, 2]), predictions=np.round(y_p))
 
-    if embed_v is not None:
+    if embed_v_full is not None:
         pca_projection = skl.decomposition.PCA(n_components=2)
         pca_proj = pca_projection.fit_transform(embed_v)
         residuals = y_p - y_v
