@@ -1356,7 +1356,12 @@ def get_embeddings(df: pd.DataFrame, features:List[str], mapper, col_names:str,
 
     print(f"Fitting embedding function on {len(df_train)} samples....")
     tic=time()
-    mapper = mapper.fit(df_train[features])
+    try:
+        mapper = mapper.fit(df_train[features], df_train[target] if target is not None else None)
+    except Exception as e:
+        print(f"Error fitting mapper: {e}")
+        print("Falling back to fit without target variable...")
+        mapper = mapper.fit(df_train[features])
 
     print("Transforming features to embeddings...")
     reduced_data = mapper.transform(df[features])
