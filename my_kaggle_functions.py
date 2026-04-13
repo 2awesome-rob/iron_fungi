@@ -112,8 +112,6 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     Returns a Globals namedtuple: (device, cores)
     """
     # Visualization settings
-
-    
     pd.set_option('display.max_rows', 25)
     pd.set_option('display.max_columns', 10)
     pd.set_option('display.max_colwidth', 15)
@@ -136,22 +134,21 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-
-    #print(torch.__version__)
     
     # Device settings
-    
     if torch.cuda.is_available():
         device = "cuda"
-        print(f"cuda version: {torch.version.cuda}")
-        print(f"cuda device name: {torch.cuda.get_device_name()}")
     else:
         device = "cpu"
-    cores = min(4, cpu_count())
 
+    cores = min(4, cpu_count())
     if verbose:
-        print(f"Using device: {device}")
         print(f"Using {cores} CPU cores when multiprocessing")
+        print(f"Using device: {device} for model training and inference")
+        if device == "cuda":
+            print(f"  cuda version: {torch.version.cuda}")
+            print(f"  cuda device name: {torch.cuda.get_device_name()}")
+            #print(torch.__version__)
 
     return Globals(device, cores)
 
@@ -175,8 +172,9 @@ def _clean_feature_names(features: List[str]) -> Tuple[List[str], Dict[str, str]
     return [clean_map[col] for col in features], clean_map
 
 def load_tabular_data(
-    path: str, extra_data: Optional[str] = None, rename_col: Optional[Dict[str, str]] = None,
-    id_feature: Optional[List[str]] = None, csv_sep: str = ",", verbose: bool = True
+    path: str, csv_sep: str = ",", id_feature: Optional[List[str]] = None,
+    extra_data: Optional[str] = None, rename_col: Optional[Dict[str, str]] = None, 
+    verbose: bool = True
     ) -> TabularData:
     """
     Reads Kaggle type tabular data from csv files into a single DataFrame.
@@ -301,8 +299,8 @@ def plot_target_eda(df: pd.DataFrame, target: str,
 
     n_unique = df_plot[target].nunique()
 
-    if df_plot[target].dtype == 'float' or (
-        df_plot[target].dtype == 'int' and n_unique > hist_threshold):
+    if pd.api.types.is_float_dtype(df_plot[target]) or (
+        pd.api.types.is_integer_dtype(df_plot[target]) and n_unique > hist_threshold):
         if df_plot[target].max() - df_plot[target].min() - (2 * df_plot[target].mean()) - df_plot[target].std() > 0:
             if df_plot[target].min() > 0:
                 scale_log = True 
@@ -396,7 +394,6 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
 
     def _plot_num_tgt_cat_relationship(ax, feature, log_scale):
         #TODO - consider replacing with stripplot + pointplot if too many unique values
-        #TODO -troubleshoot bug where targets appear to plot in wrong order for some features
         d = True if df_plot[feature].dtype == 'int' else False
         df_p = df_plot[df_plot[feature] >0] if log_scale == True else df_plot
         sns.histplot(data=df_p, stat='percent', x=feature, y=target_label,
@@ -620,7 +617,6 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
         # Limit to recent time periods (2 years) to focus on trends
         if ds.index.max() - ds.index.min() > pd.Timedelta(days=730):
             ds = ds[ds.index >= ds.index.max() - pd.Timedelta(days=730)]
-        # Resample to reduce noise and improve visibility of trends
         ds = ds.resample(freq).mean()
         pd.plotting.autocorrelation_plot(ds[target], ax=ax)
         ax.set_title(f'{target} autocorrelation by {window}')
@@ -629,7 +625,7 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
     
     # MAIN PLOT LOOP    
     for i, feature in enumerate(plot_features):
-        is_num = df_plot[feature].dtype == 'float' or (df_plot[feature].dtype=='int' and df_plot[feature].nunique() > 4)
+        is_num = pd.api.types.is_float_dtype(df_plot[feature]) or (pd.api.types.is_integer_dtype(df_plot[feature]) and df_plot[feature].nunique() > 4)
         if is_num:
             if df_plot[feature].max() - df_plot[feature].min() - (2 * df_plot[feature].mean()) - df_plot[feature].std() > 0:
                 if df_plot[feature].min() > 0:
@@ -641,7 +637,6 @@ def plot_features_eda(df: pd.DataFrame, features: List[str], target: str,
                     scale_log = False
             else:
                 scale_log = False
-#            print(f"Plotting numeric feature: {feature} with log_scale={scale_log}") #DEBUG
             ax0 = fig.add_subplot(gs[i, 0])
             row_anchors.append(ax0)
             _plot_num_distribution(ax0, feature, log_scale=scale_log)
@@ -745,14 +740,14 @@ def plot_compare_features(df: pd.DataFrame, features: List[str], target:Optional
         df_plot = df.copy()
 
     plot_features = [f for f in features if
-                     (df[f].dtype == 'float' or df[f].dtype == 'int')]
+                     (pd.api.types.is_float_dtype(df[f]) or pd.api.types.is_integer_dtype(df[f]))]
     kwargs = {'hue': None}
 
     if target is not None:
         if df_plot[target].nunique() < 8:
             kwargs['hue'] = target
             plot_features = [target] + plot_features
-        elif (df_plot[target].dtype=='int' or df[target].dtype == 'float'):
+        elif (pd.api.types.is_float_dtype(df_plot[target]) or pd.api.types.is_integer_dtype(df_plot[target])):
             plot_features = [target] + plot_features
 
     if len(plot_features) < 10:
@@ -785,7 +780,7 @@ def print_pca_loadings(df: pd.DataFrame, features: List[str], filter_small: bool
     requires: pandas, scikit learn
     """ 
     plot_features = [f for f in features if
-                     (df[f].dtype == 'float' or df[f].dtype == 'int')]
+                     (pd.api.types.is_float_dtype(df[f]) or pd.api.types.is_integer_dtype(df[f]))]
 
     if 'target_mask' in df:
         X = df[df.target_mask.eq(True)][plot_features[:10]]
@@ -1293,7 +1288,7 @@ def check_all_features_scaled(df: pd.DataFrame, targets:list)-> None:
         print(f"Object features remain in training set: {obj_features}")
         
     num_features = [f for f in df.columns if f not in targets and 
-                (df[f].dtype == 'float' or df[f].dtype == 'int')]
+                (pd.api.types.is_float_dtype(df[f]) or pd.api.types.is_integer_dtype(df[f]))]
     if num_features==[]:
         print("No numeric features in DataFrame")
         return
@@ -1434,6 +1429,22 @@ def get_target_transformer(df: pd.DataFrame, target: str,
 
     targets = targets + [enc_tgt]
     return df, targets, TargetTransformer
+
+def get_target_as_ordered_category(df: pd.DataFrame, target: str, targets: list, n_bins: int=8, verbose: bool=True):
+    """
+    bins a numeric target into n_bins ordered categories
+    """
+    df[f"target_ord_cat"] = -1
+    mask = df.target_mask.eq(True)
+    bins = np.linspace(df.loc[mask, target].min(), df.loc[mask, target].max(), n_bins+1).tolist()
+    bins[0] = -np.inf
+    bins[-1] = np.inf
+    df.loc[mask, f"target_ord_{name}"] = pd.cut(
+        df.loc[mask, target], bins=bins, labels=[i for i in range(n_bins)]
+    ).astype(int).astype('category')
+    targets.append(f"target_ord_cat")
+    if verbose: mkf.plot_target_eda(df, f"target_ord_cat", title = f'target_ord_cat distribution')
+    return df, targets
 
 def get_transformed_features(df: pd.DataFrame, features: List[str], FeatureTransformer, winsorize: tuple=[0,0]):
     """
@@ -2124,8 +2135,8 @@ def study_model_hyperparameters(df: pd.DataFrame, features: list, target: str, s
                 'min_samples_split': trial.suggest_int('min_samples_split', 2, 10),                    # Default=2
             }
             # need work to incorporate cuml
-#            if DEVICE == "cuda": model = cuml.ensemble.RandomForestClassifier(**study_params, output_type="numpy")
-#            else: 
+            #if DEVICE == "cuda": model = cuml.ensemble.RandomForestClassifier(**study_params, output_type="numpy")
+            #else: 
             study_params['n_jobs'] = CORES
             if metric.startswith("probability") or metric.startswith("classification"): 
                 model = skl.ensemble.RandomForestClassifier(**study_params, random_state=SEED)
