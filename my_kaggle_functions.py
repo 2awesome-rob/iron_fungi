@@ -1439,7 +1439,7 @@ def get_target_as_ordered_category(df: pd.DataFrame, target: str, targets: list,
     bins = np.linspace(df.loc[mask, target].min(), df.loc[mask, target].max(), n_bins+1).tolist()
     bins[0] = -np.inf
     bins[-1] = np.inf
-    df.loc[mask, f"target_ord_{name}"] = pd.cut(
+    df.loc[mask, f"target_ord_cat"] = pd.cut(
         df.loc[mask, target], bins=bins, labels=[i for i in range(n_bins)]
     ).astype(int).astype('category')
     targets.append(f"target_ord_cat")
