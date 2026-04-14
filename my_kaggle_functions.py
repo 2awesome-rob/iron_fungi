@@ -1528,6 +1528,19 @@ def get_cat_on_cat_interactions(df: pd.DataFrame, features:list, pivot:str)-> pd
             print(f"{feature}_on_{pivot} has {df[f'{feature}_on_{pivot}'].nunique()} values and needs encoding")
     return df
 
+def get_cat_on_num_interactions(df: pd.DataFrame, features:list, pivot:str, q:int=10)-> pd.DataFrame:
+    """
+    returns each combination of category and numeric values as a new feature
+    --------
+    remember to check categories after
+    --------
+    requires: pandas, scikit learn, numpy
+    """
+    df['pivot_as_cat'] = pd.qcut(df[pivot], q=q).astype(str)
+    df = get_cat_on_cat_interactions(df, features, 'pivot_as_cat')
+    df.drop(columns=['pivot_as_cat'], inplace=True)
+    return df
+
 def get_target_hints(df:pd.DataFrame, features:list, target:str, model=None, folds=7,
                       index_id: str="1", task: str='regression') -> pd.DataFrame:
     """
