@@ -14,7 +14,7 @@
 #
 ################################################################################
 
-import warnings
+import os, warnings
 warnings.filterwarnings("ignore")
 
 # Import required libraries and toolkits 
@@ -23,6 +23,8 @@ import pandas as pd
 
 import torch
 import torch.nn as nn
+
+import tensorflow as tf
 
 import sklearn as skl
 import lightgbm as lgb
@@ -123,17 +125,21 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
 
     # Custom seaborn/matplotlib style
     my_palette = _get_colors()
+    #plt.rc()
     sns.set_theme(context='paper',
                   style='ticks',
                   palette=my_palette,
                   rc={"figure.figsize": (9, 3),
                       "axes.spines.right": False,
                       "axes.spines.top": False})
-
+    
     # Random seed settings for reproducibility
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    tf.random.set_seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
     
     # Device settings
     if torch.cuda.is_available():
@@ -2339,9 +2345,8 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
     instantiates each models with hyperparameters
         use hyper_params to provide a dictionary of hyperparameters for each model
         if model hyper_params are not provided, uses optuna to find good hyperparameters for each model
-    identifies different feature subsets for each model 
-        use n_features = 1 to use all features for each model
-        use n_features > 1 to use different 1/n subsets of features for each model
+    feature_subset: bool
+        if True identifies different feature subsets for each model 
     --------
     returns:
         a dictionary of models ready for training and
@@ -2365,11 +2370,7 @@ def get_ready_models(df: pd.DataFrame, features: list, target:str, base_models:d
         if feature_subset == False:
             feats = features
         else:
-            feats = _every_nth(features, 2, start = i//2)
-#        if n_features <= 1 or n_features >= len(features) or n_features is None:
-#            feats = features
-#        else:
-#            feats = _every_nth(features, n_features, start = i//n_features)
+            feats = _every_nth(features, 2, start = i%2)
 
         training_features[k] = feats
         if hyper_params is not None and k in hyper_params:
