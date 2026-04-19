@@ -24,8 +24,6 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
-import tensorflow as tf
-
 import sklearn as skl
 import lightgbm as lgb
 import xgboost as xgb
@@ -137,9 +135,7 @@ def set_globals(seed: int = 80085, verbose: bool = True) -> Globals:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    tf.random.set_seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
-    os.environ['TF_DETERMINISTIC_OPS'] = '1'
     
     # Device settings
     if torch.cuda.is_available():
@@ -3309,6 +3305,9 @@ def train_and_score_multiclass_model(X_train: pd.DataFrame, X_val:pd.DataFrame,
                           model, task="classification_top3", verbose=verbose)
 
 """
+
+
+
 TODO: GLM feature analysis
 from statsmodels.graphics.api import abline_plot
 def get_glm_analysis(df, X = numeric_features, y = targets, plot = False): 

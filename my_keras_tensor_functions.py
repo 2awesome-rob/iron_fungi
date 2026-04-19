@@ -1,0 +1,199 @@
+################################################################################
+# Bob's functions for use in KAGGLE DATA PROJECTS
+#
+# Tools for working with Keras tensors and data. Often paired with
+# my_kaggle_functions
+#
+#
+################################################################################
+
+import os, warnings
+warnings.filterwarnings("ignore")
+
+# Import required libraries and toolkits 
+import numpy as np
+import pandas as pd 
+
+import tensorflow as tf
+
+from scipy import stats
+
+import math
+import random
+#import statsmodels.api as sm
+#import statsmodels.formula.api as smf
+
+import itertools
+from tqdm import tqdm
+from time import time
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+
+def set_globals(seed: int = 80085, verbose: bool = True):
+    """
+    Set tf global variables and configurations for the project.
+    Returns a Globals namedtuple: (device, cores)
+    """
+
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    tf.random.set_seed(seed)
+
+    tf.config.run_functions_eagerly(True)
+    
+    AUTOTUNE = tf.data.experimental.AUTOTUNE
+
+    plt.rc('figure', autolayout=True)
+    plt.rc('axes', labelsize='small', titlesize=10, titlepad=4)
+    plt.rc('image', cmap='copper')
+    return AUTOTUNE
+
+def _load_jpeg_as_tensor(path, size=[128,128], channels=1):
+    image = tf.io.read_file(path)
+    image = tf.io.decode_jpeg(image, channels=channels)
+    image = tf.image.resize(image, size=size)
+    image = tf.expand_dims(image, axis=0)
+    image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    return image
+
+def load_dataset_from_path(path, batch=1, buffer=None):
+    def _convert_to_float(image, label):
+        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+        return image, label
+    
+    ds = tf.keras.preprocessing.image_dataset_from_directory(
+        path,
+        labels='inferred',
+        label_mode='binary',
+        image_size=[128, 128],
+        interpolation='nearest',
+        batch_size=batch,
+        shuffle=True,
+    )
+
+    if buffer is None:
+        ds = (ds
+              .map(_convert_to_float)
+        )
+    else:
+        ds = (ds
+              .map(_convert_to_float)
+              .cache()
+              .prefetch(buffer_size=buffer)
+        )
+    return ds
+
+def plot_training_thumbnails(samples=4):
+    plot_files = []
+    for dirname, _, filenames in os.walk('../input'):
+        if "train" in dirname and filenames != []:
+            sampled = random.sample(filenames, min(samples, len(filenames)))
+            for filename in sampled:
+                plot_files.append(os.path.join(dirname, filename))
+
+    images = []
+    for filename in plot_files[:40]:
+        image = _load_jpeg_as_tensor(filename)
+        images.append(image)
+
+    plt.figure(figsize=(8, len(images)//2))
+    for i, image in enumerate(images):
+        plt.subplot(i//samples + 1, samples, i%samples + 1)
+        plt.imshow(tf.squeeze(image), cmap='gray')
+        plt.axis('off')
+    plt.tight_layout()   
+    plt.title("Sample Training Images")
+    plt.show()
+
+def plot_image_kernels(image, kernels:dict):
+    images = [image]
+    titles = ["unfiltered"]
+    #convolution filters
+    for k in kernels.keys():
+        image_filter = tf.nn.conv2d(
+            input=image,
+            filters=kernels[k],
+            strides=1,
+            padding='VALID',
+        )
+        images.append(image_filter)
+        titles.append(k)
+
+    cols = min(6, len(images))
+
+    plt.figure(figsize=(2*cols, 12))
+    for i, image in enumerate(images):
+        plt.subplot(i//cols+1, cols, i%cols+1)
+        if i==0: plt.imshow(tf.squeeze(image), cmap='gray')
+        else: plt.imshow(tf.squeeze(image))
+        plt.axis('off')
+        plt.title(titles[i])
+    plt.tight_layout()   
+    plt.show()
+
+def plot_image_cv_steps(image, kernel):
+    image_filter = tf.nn.conv2d(
+        input=image,
+        filters=kernel,
+        strides=1,
+        padding='VALID',
+    )
+
+    image_detect = tf.nn.relu(image_filter)
+
+    image_condense = tf.nn.pool(
+        input=image_detect,
+        window_shape=(2,2),
+        pooling_type='MAX',
+        strides=1,
+        padding='SAME',
+    )
+
+    images = [image, image_filter, image_detect, image_condense]
+    titles = ['input', 'filter', 'detect', 'condense']
+
+    plt.figure(figsize=(8, 8))
+    for i, img in enumerate(images):
+        plt.subplot(1, 4, i+1)
+        if i==0: plt.imshow(tf.squeeze(img), cmap='gray')
+        else: plt.imshow(tf.squeeze(img))
+        plt.axis('off')
+        plt.title(titles[i])
+    plt.tight_layout()   
+    plt.show()
+
+
+
+"""
+TODO: kernel convolution filtering of time series:
+
+detrend = tf.constant([-1, 1], dtype=tf.float32)
+average = tf.constant([0.2, 0.2, 0.2, 0.2, 0.2], dtype=tf.float32)
+spencer = tf.constant([-3, -6, -5, 3, 21, 46, 67, 74, 67, 46, 32, 3, -5, -6, -3], dtype=tf.float32) / 320
+
+
+# UNCOMMENT ONE
+#kernel = detrend
+#kernel = average
+kernel = spencer
+
+# Reformat for TensorFlow
+ts_data = machinelearning.to_numpy()
+ts_data = tf.expand_dims(ts_data, axis=0)
+ts_data = tf.cast(ts_data, dtype=tf.float32)
+kern = tf.reshape(kernel, shape=(*kernel.shape, 1, 1))
+
+ts_filter = tf.nn.conv1d(
+    input=ts_data,
+    filters=kern,
+    stride=1,
+    padding='VALID',
+)
+
+# Format as Pandas Series
+machinelearning_filtered = pd.Series(tf.squeeze(ts_filter).numpy())
+
+machinelearning_filtered.plot();
+
+"""
