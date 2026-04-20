@@ -49,15 +49,44 @@ def set_globals(seed: int = 80085, verbose: bool = True):
     plt.rc('image', cmap='copper')
     return AUTOTUNE
 
-def _load_jpeg_as_tensor(path, size=[128,128], channels=1):
+def _rescale(pic,n):
+    rows, cols, _ = np.shape(pic)
+    rows = int(n * int(rows/n)) # make sure rows are divisible by n
+    cols = int(n * int(cols/n)) # make sure cols are divisible by n
+    pic = pic[:rows,:cols]
+    rows = int(rows/n)
+    cols = int(cols/n)
+    img = np.zeros((rows,cols,3),np.float64)
+    for i in range(rows):
+        for j in range(cols):
+            a = int(i*n)
+            b = int(i*n+n)
+            if a == b: b+=1
+            c = int(j*n)
+            d = int(j*n+n)
+            if c == d: d+=1
+            img[i,j,0] = np.average(pic[a:b,c:d,0])  # Red Channel
+            img[i,j,1] = np.average(pic[a:b,c:d,1])  # Green Channel
+            img[i,j,2] = np.average(pic[a:b,c:d,2])  # Blue Channel
+    return img
+
+def _load_jpeg_as_tensor(path, size=128, channels=1):
     image = tf.io.read_file(path)
     image = tf.io.decode_jpeg(image, channels=channels)
-    image = tf.image.resize(image, size=size)
+    image = tf.image.resize(image, size=[size, size])
     image = tf.expand_dims(image, axis=0)
     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
     return image
 
-def load_train_sample_images(verbose=True):
+def _load_jpeg_as_array(path, size=None, channels=None):
+    image = plt.imread(path)
+    if size is not None:
+        image = _rescale(image, size)
+    if channels < 2: 
+        image = np.dot(image[...,:3], [1/3,1/3,1/3])
+    return image
+
+def load_train_sample_images(verbose=True, channels=1):
     img_files = []
     keys = []
     for dirname, _, filenames in os.walk('../input'):
@@ -69,7 +98,7 @@ def load_train_sample_images(verbose=True):
 
     images = {}
     for i, filename in enumerate(img_files):
-        images[keys[i]] = _load_jpeg_as_tensor(filename)
+        images[keys[i]] = _load_jpeg_as_tensor(filename, channels=channels)
     print(f"Images loaded with keys: {list(images.keys())}")
 
     if verbose:
@@ -132,7 +161,6 @@ def plot_train_sample_thumbnails(samples=4):
     plt.title("Sample Training Images")
     plt.show()
 
-
 def get_basic_kernels():
     def _format_as_tensor(kern):
         kern = tf.cast(kern, dtype=tf.float32)
@@ -169,8 +197,26 @@ def get_basic_kernels():
     print(f"Loaded {list(kernels.keys())} kernels")
     return kernels
 
+def plot_data_augmentation(image, data_augmentation_layers = None):
+    if data_augmentation_layers == None:
+        data_augmentation_layers = [
+            tf.keras.layers.RandomFlip(),
+            tf.keras.layers.RandomRotation(0.15),
+            tf.keras.layers.RandomContrast(0.5)
+        ]
 
+    def _data_augmentation(images):
+        for layer in data_augmentation_layers:
+            images = layer(images)
+        return images
 
+    plt.figure(figsize=(6, 6))
+    for i in range(9):
+        augmented_images = _data_augmentation(image)
+        ax = plt.subplot(3, 3, i + 1)
+        ax.imshow(tf.squeeze(augmented_images).numpy())
+        plt.axis("off")
+    plt.show()
 
 def plot_image_kernels(image, kernels:dict):
     images = [image]
@@ -212,7 +258,7 @@ def plot_image_cv_steps(image, kernel):
         input=image_detect,
         window_shape=(2,2),
         pooling_type='MAX',
-        strides=1,
+        strides=(1,1),
         padding='SAME',
     )
 
@@ -229,7 +275,26 @@ def plot_image_cv_steps(image, kernel):
     plt.tight_layout()   
     plt.show()
 
+def plot_thumbnails(samples=4):
+    plot_files = []
+    for dirname, _, filenames in os.walk('../input'):
+        if "train" in dirname and filenames != []:
+            sampled = random.sample(filenames, min(samples, len(filenames)))
+            for filename in sampled:
+                plot_files.append(os.path.join(dirname, filename))
 
+    images = []
+    for filename in plot_files:
+        image = _load_jpeg_as_tensor(filename, channels=1)
+        images.append(image)
+
+    plt.figure(figsize=(8, 8))
+    for i, image in enumerate(images):
+        plt.subplot(i//samples +1, samples, i%samples +1)
+        plt.imshow(tf.squeeze(image), cmap='gray')
+        plt.axis('off')
+    plt.tight_layout()   
+    plt.show()
 
 """
 TODO: kernel convolution filtering of time series:
