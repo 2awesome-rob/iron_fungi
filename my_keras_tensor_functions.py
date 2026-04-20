@@ -57,6 +57,32 @@ def _load_jpeg_as_tensor(path, size=[128,128], channels=1):
     image = tf.image.convert_image_dtype(image, dtype=tf.float32)
     return image
 
+def load_train_sample_images(verbose=True):
+    img_files = []
+    keys = []
+    for dirname, _, filenames in os.walk('../input'):
+        if "train" in dirname and filenames != []:
+            keys.append(dirname.split("/")[-1])
+            sampled = random.sample(filenames, 1)
+            for filename in sampled:
+                img_files.append(os.path.join(dirname, filename))
+
+    images = {}
+    for i, filename in enumerate(img_files):
+        images[keys[i]] = _load_jpeg_as_tensor(filename)
+    print(f"Images loaded with keys: {list(images.keys())}")
+
+    if verbose:
+        plt.figure(figsize=(4, 2*len(keys)))
+        for i, key in enumerate(keys):
+            plt.subplot(len(keys)+1, 1,  i + 1)
+            plt.imshow(tf.squeeze(images[key]), cmap='gray')
+            plt.axis('off')
+            plt.title(f"Class: {key}")
+        plt.tight_layout()   
+        plt.show()
+    return images
+
 def load_dataset_from_path(path, batch=1, buffer=None):
     def _convert_to_float(image, label):
         image = tf.image.convert_image_dtype(image, dtype=tf.float32)
@@ -84,7 +110,7 @@ def load_dataset_from_path(path, batch=1, buffer=None):
         )
     return ds
 
-def plot_training_thumbnails(samples=4):
+def plot_train_sample_thumbnails(samples=4):
     plot_files = []
     for dirname, _, filenames in os.walk('../input'):
         if "train" in dirname and filenames != []:
@@ -105,6 +131,46 @@ def plot_training_thumbnails(samples=4):
     plt.tight_layout()   
     plt.title("Sample Training Images")
     plt.show()
+
+
+def get_basic_kernels():
+    def _format_as_tensor(kern):
+        kern = tf.cast(kern, dtype=tf.float32)
+        kern = tf.reshape(kern, [*kern.shape, 1, 1])
+        return kern
+
+    kernels_dict={
+        "edge": np.array([
+            [-1, -1, -1],
+            [-1,  8, -1],
+            [-1, -1, -1]
+        ]),
+        "bottom_sobel": np.array([
+            [-1, -2, -1],
+            [ 0,  0,  0],
+            [ 1,  2,  1]
+        ]),
+        "emboss": np.array([
+            [-2, -1,  0],
+            [-1,  1,  1],
+            [ 0,  1,  2]
+        ]),
+        "sharpen": np.array([
+            [ 0, -1,  0],
+            [-1,  5, -1],
+            [ 0, -1,  0]
+        ])
+        }
+
+    kernels = {}
+    for k in kernels_dict.keys():
+        kernels[k] = _format_as_tensor(kernels_dict[k])
+
+    print(f"Loaded {list(kernels.keys())} kernels")
+    return kernels
+
+
+
 
 def plot_image_kernels(image, kernels:dict):
     images = [image]
