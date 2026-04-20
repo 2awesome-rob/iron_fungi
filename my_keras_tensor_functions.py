@@ -73,9 +73,12 @@ def _rescale(pic,n):
 def _load_jpeg_as_tensor(path, size=128, channels=1):
     image = tf.io.read_file(path)
     image = tf.io.decode_jpeg(image, channels=channels)
-    image = tf.image.resize(image, size=[size, size])
-    image = tf.expand_dims(image, axis=0)
-    image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+    if image.shape[0] != size or image.shape[1] != size:
+        channels=1
+    if channels == 1:
+        image = tf.image.resize(image, size=[size, size])
+        image = tf.expand_dims(image, axis=0)
+        image = tf.image.convert_image_dtype(image, dtype=tf.float32)/255
     return image
 
 def _load_jpeg_as_array(path, size=None, channels=None):
@@ -102,10 +105,13 @@ def load_train_sample_images(verbose=True, channels=1):
     print(f"Images loaded with keys: {list(images.keys())}")
 
     if verbose:
-        plt.figure(figsize=(4, 2*len(keys)))
+        plt.figure(figsize=(2*len(keys), 4))
         for i, key in enumerate(keys):
-            plt.subplot(len(keys)+1, 1,  i + 1)
-            plt.imshow(tf.squeeze(images[key]), cmap='gray')
+            plt.subplot( 1, len(keys)+1, i + 1)
+            if channels==1:
+                plt.imshow(tf.squeeze(images[key]).numpy(), cmap='grey')
+            else:
+                plt.imshow(tf.squeeze(images[key]).numpy())
             plt.axis('off')
             plt.title(f"Class: {key}")
         plt.tight_layout()   
