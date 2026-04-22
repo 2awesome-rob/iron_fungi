@@ -24,6 +24,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+import tensorflow as tf
+
 import sklearn as skl
 import lightgbm as lgb
 import xgboost as xgb
@@ -2664,7 +2666,96 @@ def submit_cv_predict(X: pd.DataFrame, y: pd.Series, features: dict, target:str,
     return submission_df
 
 ########################################
-# Neural Net -> build a nn feature extractor network
+# Neural Net -> build a nn feature extractor network with keras
+
+def make_keras_model(num_1D_features, normalizer, task='classification', n_classes=3, verbose=True):
+
+    inputs = tf.keras.Input(shape=(num_1D_features,))
+
+    x = normalizer(inputs)
+    x = tf.keras.layers.Dense(128)(x)
+    set_aside = tf.keras.layers.BatchNormalization()(x)
+    
+    for size in [256, 128, 128]:
+        x = tf.keras.layers.Dense(size, activation='leaky_relu')(x)
+        x = tf.keras.layers.Dropout(0.02)(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+        x = tf.keras.layers.Dense(128, activation='leaky_relu')(x)
+        x = tf.keras.layers.add([x, set_aside])
+        set_aside = tf.keras.layers.BatchNormalization()(x)
+
+    x = tf.keras.layers.Dense(64, activation='leaky_relu')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    embedding = tf.keras.layers.Dense(16, name="embedding")(x)
+    x = tf.keras.layers.Dense(16, activation='leaky_relu')(embedding)
+    x = tf.keras.layers.Dense(16, activation='leaky_relu')(x)
+    if n_classes==2:
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+    else:
+        outputs = tf.keras.layers.Dense(n_classes, activation='softmax')(x)
+    model = tf.keras.Model(inputs=inputs, 
+                           outputs=outputs)
+
+    if n_classes==2:
+        model.compile(
+            optimizer='adam',
+            loss=tf.keras.losses.BinaryCrossentropy(from_logits=False),
+            metrics=[keras.metrics.AUC()]
+        )
+    else:
+        model.compile(
+            optimizer='adam',
+            loss=tf.keras.losses.CategoricalCrossentropy(from_logits=False),
+            metrics=['categorical_accuracy']
+        )
+
+    if verbose:
+        model.summary()
+    return model
+
+def get_keras_embeddings(df, features, target, task='classification', verbose=True):
+    training_features = [f for f in features if df[f].dtype == 'float']
+
+    x=df[df.target_mask.eq(True)][training_features]
+    y = df[df.target_mask.eq(True)][target]
+    if y.nunique() == 2:
+        n_classes = 2
+    else:
+        n_classes = y.nunique()
+        y = pd.get_dummies(y,columns=target)
+
+    normalizer = tf.keras.layers.Normalization(axis=-1)
+    normalizer.adapt(np.array(df[training_features]))
+    
+    model = make_keras_model(len(training_features), normalizer, task=task, n_classes=n_classes, verbose=verbose)
+
+    history = model.fit(x[training_features].values, y.values, epochs=12, batch_size=1024)
+    if verbose:
+        fig, axs = plt.subplots(ncols=2, figsize=(6, 3))
+        history_frame = pd.DataFrame(history.history)
+        history_frame.loc[:, ['loss']].plot(ax=axs[0])
+        history_frame.loc[:, ['categorical_accuracy']].plot(ax=axs[1]) #TODO set y scale 0 to 1
+        plt.show()
+        
+    #hints = model.predict(df[training_features].values, batch_size=1024)
+    #columns = [f'keras_hint_{i}' for i in range(hints.shape[1])]
+    #df_hint = pd.DataFrame(hints, index=df.index, columns=columns)
+    #df = df.join(df_hint)
+    
+    embedding_layer = model.get_layer("embedding")
+    embed_model = tf.keras.Model(model.input, embedding_layer.output)
+    embeds = embed_model.predict(df[training_features].values, batch_size=1024)
+    columns = [f'keras_embed_{i}' for i in range(embeds.shape[1])]
+    df_embed = pd.DataFrame(embeds, index=df.index, columns=columns)
+    df = df.join(df_embed)
+    if verbose:
+        cols = random.sample(columns, 2)
+        _plot_embeddings(df, cols[0], cols[1], target=target)
+    return df
+
+
+########################################
+# Neural Net -> build a nn feature extractor network with torch
 class ResidualBlock(nn.Module):
     def __init__(self, dim):
         super().__init__()
